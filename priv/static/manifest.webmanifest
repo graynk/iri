@@ -1,0 +1,26 @@
+{
+  "name": "IRI",
+  "short_name": "IRI",
+  "description": "A fast, self-hosted game library.",
+  "id": "/",
+  "start_url": "/library",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone"],
+  "background_color": "#0f0e17",
+  "theme_color": "#0f0e17",
+  "icons": [
+    {
+      "src": "/images/iri-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/images/iri-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

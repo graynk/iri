@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+  echo "Usage: $0 [OUTPUT_DB]" >&2
+  echo "Creates a consistent online backup of the Docker Compose IRI database." >&2
+}
+
+if [[ $# -gt 1 ]]; then
+  usage
+  exit 64
+fi
+
+command -v docker >/dev/null || {
+  echo "Docker with the Compose plugin is required." >&2
+  exit 69
+}
+
+if ! docker compose version >/dev/null 2>&1; then
+  echo "The Docker Compose plugin is required." >&2
+  exit 69
+fi
+
+project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+compose=(docker compose --project-directory "$project_root")
+service=iri
+output_db=${1:-"iri-backup-$(date +%Y%m%d-%H%M%S).db"}
+
+if [[ -e "$output_db" ]]; then
+  echo "Refusing to overwrite existing output: $output_db" >&2
+  exit 73
+fi
+
+container_id=$("${compose[@]}" ps -q "$service")
+
+if [[ -z "$container_id" ]]; then
+  echo "The Docker Compose service '$service' is not running." >&2
+  exit 69
+fi
+
+database_path=$(
+  "${compose[@]}" exec -T "$service" sh -c 'printf "%s" "${DATABASE_PATH:-}"'
+)
+database_path=${database_path//$'\r'/}
+
+if [[ -z "$database_path" ]]; then
+  echo "DATABASE_PATH is not set in the running IRI container." >&2
+  exit 78
+fi
+
+if ! "${compose[@]}" exec -T "$service" test -f "$database_path"; then
+  echo "IRI database not found in the container: $database_path" >&2
+  exit 66
+fi
+
+container_backup=$(
+  "${compose[@]}" exec -T "$service" mktemp /tmp/iri-backup.XXXXXX.db
+)
+container_backup=${container_backup//$'\r'/}
+
+cleanup() {
+  "${compose[@]}" exec -T "$service" rm -f -- "$container_backup" >/dev/null 2>&1 || true
+}
+
+trap cleanup EXIT
+
+"${compose[@]}" exec -T "$service" \
+  sqlite3 -bail "$database_path" ".backup '$container_backup'"
+
+integrity=$(
+  "${compose[@]}" exec -T "$service" \
+    sqlite3 -bail "$container_backup" "PRAGMA integrity_check;"
+)
+
+if [[ "$integrity" != "ok" ]]; then
+  echo "Backup integrity check failed: $integrity" >&2
+  exit 65
+fi
+
+foreign_key_violations=$(
+  "${compose[@]}" exec -T "$service" \
+    sqlite3 -bail "$container_backup" "PRAGMA foreign_key_check;"
+)
+
+if [[ -n "$foreign_key_violations" ]]; then
+  echo "Backup contains foreign-key violations:" >&2
+  echo "$foreign_key_violations" >&2
+  exit 65
+fi
+
+iri_table_count=$(
+  "${compose[@]}" exec -T "$service" \
+    sqlite3 -bail "$container_backup" \
+    "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name IN ('users', 'games', 'game_sources', 'library_items');"
+)
+
+if [[ "$iri_table_count" != "4" ]]; then
+  echo "Backup does not contain IRI's core database schema." >&2
+  echo "The running container reported DATABASE_PATH=$database_path" >&2
+  exit 65
+fi
+
+output_dir=$(dirname "$output_db")
+mkdir -p "$output_dir"
+
+"${compose[@]}" cp "${service}:${container_backup}" "$output_db"
+
+if [[ ! -s "$output_db" ]]; then
+  echo "Docker Compose produced an empty backup: $output_db" >&2
+  exit 65
+fi
+
+cleanup
+trap - EXIT
+
+echo "Created database backup: $output_db"
+echo "Source database: $database_path"
+echo "SQLite integrity and foreign-key checks passed."
+echo "Back up your Compose .env and /data/media separately."

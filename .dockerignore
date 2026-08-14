@@ -1,0 +1,17 @@
+.git
+.agents
+.codex
+.dexter
+.expert
+.rules-phoenix
+_build
+deps
+data
+*.db
+*.db-shm
+*.db-wal
+.env
+test
+AGENTS.md
+IMPLEMENTATION_PLAN.md
+README.md

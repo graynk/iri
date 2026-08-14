@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+images_dir="$project_root/priv/static/images"
+source_svg="$images_dir/iri-icon.svg"
+
+if ! command -v inkscape >/dev/null 2>&1; then
+  echo "Inkscape is required; install it and run this script again." >&2
+  exit 1
+fi
+
+if [[ ! -f "$source_svg" ]]; then
+  echo "Missing editable icon: $source_svg" >&2
+  exit 1
+fi
+
+for size in 180 192 512; do
+  inkscape "$source_svg" \
+    --export-area-page \
+    --export-type=png \
+    --export-width="$size" \
+    --export-height="$size" \
+    --export-filename="$images_dir/iri-icon-$size.png"
+done

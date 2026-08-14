@@ -1,0 +1,15 @@
+services:
+  iri:
+    image: ghcr.io/graynk/iri:latest
+    env_file: .env
+    environment:
+      DATABASE_PATH: /data/iri.db
+    ports:
+      - "4000:4000"
+    volumes:
+      - iri-data:/data
+    restart: unless-stopped
+
+volumes:
+  iri-data:
+    name: iri-data

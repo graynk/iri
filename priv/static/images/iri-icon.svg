@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Safest merge: whole gamepad, play triangle sits where the face
+       buttons live. Most instantly legible at 60px. -->
+  <rect width="1024" height="1024" fill="#0f0e17"/>
+  <rect x="192" y="336" width="640" height="352" rx="176" fill="#fffffe"/>
+  <rect x="346" y="410" width="52" height="204" rx="14" fill="#0f0e17"/>
+  <rect x="270" y="486" width="204" height="52" rx="14" fill="#0f0e17"/>
+  <path d="M596 420 L596 604 L756 512 Z" fill="#ff8906" stroke="#ff8906" stroke-width="28" stroke-linejoin="round"/>
+</svg>
