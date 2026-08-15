@@ -139,7 +139,7 @@ defmodule IriWeb.Layouts do
             <span class="hidden sm:inline">Bulk edit</span>
           </.link>
           <.link
-            :if={@current_scope}
+            :if={@current_scope && !Iri.InstancePolicy.demo?()}
             id="settings-nav-link"
             navigate={~p"/settings/account"}
             aria-label="Settings"
@@ -150,7 +150,7 @@ defmodule IriWeb.Layouts do
             <span class="hidden sm:inline">Settings</span>
           </.link>
           <.link
-            :if={@current_scope}
+            :if={@current_scope && !Iri.InstancePolicy.demo?()}
             href={~p"/users/log-out"}
             method="delete"
             aria-label="Log out"
@@ -161,11 +161,21 @@ defmodule IriWeb.Layouts do
             <span class="hidden sm:inline">Log out</span>
           </.link>
           <.link
-            :if={!@current_scope}
+            :if={!@current_scope && !Iri.InstancePolicy.demo?()}
             navigate={~p"/users/log-in"}
             class="rounded-lg border border-slate-700 bg-slate-900/30 px-3 py-2 text-slate-300 transition hover:border-teal-400/50 hover:bg-teal-400/10 hover:text-teal-100"
           >Log in</.link>
         </nav>
+      </div>
+      <div
+        :if={Iri.InstancePolicy.demo?()}
+        id="demo-mode-banner"
+        role="status"
+        class="mx-auto flex max-w-7xl items-center justify-center gap-2 border-t border-amber-300/15 py-2 text-center text-xs text-amber-100 sm:text-sm"
+      >
+        <.icon name="hero-eye" class="size-4 shrink-0 text-amber-300" />
+        <span><strong class="font-semibold">Read-only demo.</strong>
+        Explore this snapshot—changes are disabled.</span>
       </div>
     </header>
 

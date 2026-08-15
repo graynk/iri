@@ -59,6 +59,7 @@ defmodule IriWeb.CollectionLive.Index do
             </p>
           </div>
           <.button
+            :if={!@demo?}
             id="new-collection"
             navigate={~p"/collections/new"}
             class="gap-2"
@@ -83,6 +84,7 @@ defmodule IriWeb.CollectionLive.Index do
                 Collections give selected games a useful home without changing your library.
               </p>
               <.link
+                :if={!@demo?}
                 navigate={~p"/collections/new"}
                 class="mt-5 inline-flex min-h-11 items-center rounded-xl border border-teal-400/50 px-4 py-2 text-sm font-semibold text-teal-100 transition hover:bg-teal-400/10"
               >
@@ -95,6 +97,7 @@ defmodule IriWeb.CollectionLive.Index do
               id={id}
               row={row}
               variant={:owner}
+              demo?={@demo?}
             />
           </div>
         </section>
@@ -133,6 +136,7 @@ defmodule IriWeb.CollectionLive.Index do
               id={id}
               row={row}
               variant={:family}
+              demo?={@demo?}
             />
           </div>
         </section>
@@ -144,6 +148,7 @@ defmodule IriWeb.CollectionLive.Index do
   attr :id, :string, required: true
   attr :row, :map, required: true
   attr :variant, :atom, required: true, values: [:owner, :family]
+  attr :demo?, :boolean, required: true
 
   defp collection_card(assigns) do
     assigns = assign(assigns, :collection_path, collection_path(assigns.row, assigns.variant))
@@ -214,7 +219,7 @@ defmodule IriWeb.CollectionLive.Index do
             Open
           </.link>
           <.link
-            :if={@variant == :owner}
+            :if={@variant == :owner && !@demo?}
             id={"edit-collection-#{@row.collection.id}"}
             navigate={~p"/collections/#{@row.collection.id}/edit"}
             aria-label={"Edit #{@row.collection.name}"}

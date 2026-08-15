@@ -1,0 +1,47 @@
+# Read-only public demo, deployed from a workstation with `fly deploy`.
+#
+# The snapshot and cached media are baked into the image by the Dockerfile's
+# `demo` stage, so this app has no [mounts] and needs no volume seeding. Stage
+# ./demo before deploying; see DEMO.md.
+#
+# Change `app` and PHX_HOST together: PHX_HOST must match the hostname the
+# browser uses, or share links and Steam OpenID callbacks point somewhere else.
+
+app = "iri-demo"
+primary_region = "fra"
+
+[build]
+  # `demo` is the Dockerfile's final stage, so no build target is needed.
+  dockerfile = "Dockerfile"
+
+[env]
+  INSTANCE_MODE = "DEMO"
+  LIBRARY_MODE = "FAMILY"
+  NSFW_MEDIA = "BLUR"
+  DOWNLOAD_SCREENSHOTS = "false"
+  PHX_HOST = "iri-demo.fly.dev"
+  PHX_SCHEME = "https"
+  TZ = "Etc/UTC"
+
+# SECRET_KEY_BASE is the only secret a demo needs; set it once with
+#   fly secrets set SECRET_KEY_BASE="$(openssl rand -base64 48)"
+# Demo mode runs no imports or metadata refreshes, so IGDB, Steam, OpenXBL, and
+# AI credentials are all unnecessary.
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

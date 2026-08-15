@@ -1,0 +1,219 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage: scripts/package-demo SOURCE_DB SOURCE_USERNAME [options]
+
+Builds the complete demo payload: a sanitised snapshot plus exactly the cached
+media that snapshot still references. The result is ready for `fly deploy` or
+the demo Compose file.
+
+Options:
+  --exclude FILE   Drop individual games. One entry per line, either a numeric
+                   game id or a slug; blank lines and # comments are ignored.
+                   Every entry must match exactly one game or the run aborts.
+  --media DIR      Cached media directory (default: data/media).
+  --output DIR     Payload directory (default: demo).
+  --covers-only    Stage cover images only. Screenshots then fall back to the
+                   provider URL, which is much smaller but leaves collection
+                   exports without cover images.
+  --force          Replace an existing output directory.
+  --prune-media    After staging, delete files in the media directory that
+                   SOURCE_DB no longer references. Use this after
+                   `mix iri.prune_orphans` to reclaim the cache. Destructive:
+                   it deletes from your real media directory, not the payload.
+
+Excluding a game removes that game and its provider sources, so the rest of the
+same library is untouched.
+USAGE
+}
+
+if [[ $# -lt 2 ]]; then
+  usage
+  exit 64
+fi
+
+source_db=$1
+source_username=$2
+shift 2
+
+exclude_file=""
+media_dir=data/media
+output_dir=demo
+covers_only=false
+force=false
+prune_media=false
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --exclude)
+      exclude_file=${2:-}
+      shift 2
+      ;;
+    --media)
+      media_dir=${2:-}
+      shift 2
+      ;;
+    --output)
+      output_dir=${2:-}
+      shift 2
+      ;;
+    --covers-only)
+      covers_only=true
+      shift
+      ;;
+    --prune-media)
+      prune_media=true
+      shift
+      ;;
+    --force)
+      force=true
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage
+      exit 64
+      ;;
+  esac
+done
+
+command -v sqlite3 >/dev/null || {
+  echo "sqlite3 is required." >&2
+  exit 69
+}
+
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+[[ -f "$source_db" ]] || {
+  echo "Source database does not exist: $source_db" >&2
+  exit 66
+}
+
+[[ -d "$media_dir" ]] || {
+  echo "Media directory does not exist: $media_dir" >&2
+  exit 66
+}
+
+if [[ -n "$exclude_file" && ! -f "$exclude_file" ]]; then
+  echo "Exclusion file does not exist: $exclude_file" >&2
+  exit 66
+fi
+
+if [[ -e "$output_dir" ]]; then
+  if [[ "$force" == true ]]; then
+    rm -rf -- "$output_dir"
+  else
+    echo "Refusing to overwrite existing output: $output_dir (pass --force)" >&2
+    exit 73
+  fi
+fi
+
+mkdir -p "$output_dir"
+snapshot="$output_dir/iri.db"
+
+snapshot_args=("$source_db" "$snapshot" "$source_username")
+if [[ -n "$exclude_file" ]]; then
+  snapshot_args+=(--exclude "$exclude_file")
+fi
+
+"$script_dir/create-demo-snapshot" "${snapshot_args[@]}"
+
+# create-demo-snapshot marks the snapshot read-only; reopen it for the edits below.
+chmod u+w "$snapshot"
+
+sqlite3 -bail "$snapshot" >/dev/null <<'SQL'
+VACUUM;
+PRAGMA journal_mode = DELETE;
+SQL
+
+integrity=$(sqlite3 -bail "$snapshot" "PRAGMA integrity_check;")
+if [[ "$integrity" != "ok" ]]; then
+  echo "Snapshot integrity check failed: $integrity" >&2
+  exit 65
+fi
+
+violations=$(sqlite3 -bail "$snapshot" "PRAGMA foreign_key_check;")
+if [[ -n "$violations" ]]; then
+  echo "Snapshot contains foreign-key violations:" >&2
+  echo "$violations" >&2
+  exit 65
+fi
+
+kind_filter=""
+if [[ "$covers_only" == true ]]; then
+  kind_filter="AND kind = 'cover'"
+fi
+
+wanted=$(mktemp)
+available=$(mktemp)
+staged=$(mktemp)
+trap 'rm -f -- "$wanted" "$available" "$staged"' EXIT
+
+sqlite3 -bail "$snapshot" \
+  "SELECT local_path FROM media_assets
+   WHERE cache_status = 'ready' AND local_path IS NOT NULL $kind_filter;" |
+  sort >"$wanted"
+
+(cd "$media_dir" && find . -type f | sed 's|^\./||' | sort) >"$available"
+comm -12 "$wanted" "$available" >"$staged"
+
+missing=$(comm -23 "$wanted" "$available" | wc -l | tr -d ' ')
+
+mkdir -p "$output_dir/media"
+if [[ -s "$staged" ]]; then
+  rsync -a --files-from="$staged" "$media_dir/" "$output_dir/media/"
+fi
+
+chmod 0444 "$snapshot"
+
+games=$(sqlite3 -bail "$snapshot" "SELECT count(*) FROM games;")
+staged_count=$(wc -l <"$staged" | tr -d ' ')
+payload_size=$(du -sh "$output_dir" | cut -f1)
+
+echo
+echo "Packaged demo in $output_dir"
+echo "  games:        $games"
+echo "  media files:  $staged_count"
+echo "  payload size: $payload_size"
+
+if [[ "$prune_media" == true ]]; then
+  # Prune against SOURCE_DB, not the snapshot: the snapshot drops other users'
+  # libraries, and their cached media is still legitimately yours.
+  source_wanted=$(mktemp)
+  unreferenced=$(mktemp)
+  trap 'rm -f -- "$wanted" "$available" "$staged" "$source_wanted" "$unreferenced"' EXIT
+
+  sqlite3 -bail "$source_db" \
+    "SELECT local_path FROM media_assets
+     WHERE cache_status = 'ready' AND local_path IS NOT NULL;" |
+    sort >"$source_wanted"
+
+  comm -13 "$source_wanted" "$available" >"$unreferenced"
+
+  pruned=0
+  while IFS= read -r path; do
+    [[ -z "$path" ]] && continue
+    if [[ -f "$media_dir/$path" ]]; then
+      rm -f -- "$media_dir/$path"
+      pruned=$((pruned + 1))
+    fi
+  done <"$unreferenced"
+
+  find "$media_dir" -type d -empty -delete 2>/dev/null || true
+
+  echo "  pruned:       $pruned unreferenced file(s) from $media_dir"
+  echo "                ($(du -sh "$media_dir" | cut -f1) remaining)"
+fi
+
+if [[ "$missing" != "0" ]]; then
+  echo
+  echo "Warning: $missing referenced media file(s) are not cached in $media_dir." >&2
+  echo "IRI falls back to the provider URL for those, so the demo still renders." >&2
+fi

@@ -25,6 +25,7 @@ defmodule IriWeb.UserAuth do
 
   alias Iri.Accounts
   alias Iri.Accounts.Scope
+  alias Iri.{Demo, InstancePolicy}
 
   # Keep this in sync with the session validity in UserToken.
   @max_cookie_age_in_days 14
@@ -44,9 +45,13 @@ defmodule IriWeb.UserAuth do
   Redirects to the appropriate signed-in path.
   """
   def log_in_user(conn, user, params \\ %{}) do
-    conn
-    |> issue_user_session(user, params)
-    |> redirect(to: signed_in_path(conn))
+    if InstancePolicy.demo?() do
+      redirect(conn, to: ~p"/library")
+    else
+      conn
+      |> issue_user_session(user, params)
+      |> redirect(to: signed_in_path(conn))
+    end
   end
 
   @doc """
@@ -55,17 +60,21 @@ defmodule IriWeb.UserAuth do
   It clears all session data for safety. See renew_session.
   """
   def log_out_user(conn) do
-    user_token = get_session(conn, :user_token)
-    user_token && Accounts.delete_user_session_token(user_token)
+    if InstancePolicy.demo?() do
+      redirect(conn, to: ~p"/library")
+    else
+      user_token = get_session(conn, :user_token)
+      user_token && Accounts.delete_user_session_token(user_token)
 
-    if live_socket_id = get_session(conn, :live_socket_id) do
-      IriWeb.Endpoint.broadcast(live_socket_id, "disconnect", %{})
+      if live_socket_id = get_session(conn, :live_socket_id) do
+        IriWeb.Endpoint.broadcast(live_socket_id, "disconnect", %{})
+      end
+
+      conn
+      |> renew_session(nil)
+      |> delete_resp_cookie(@remember_me_cookie, @remember_me_options)
+      |> redirect(to: ~p"/users/log-in")
     end
-
-    conn
-    |> renew_session(nil)
-    |> delete_resp_cookie(@remember_me_cookie, @remember_me_options)
-    |> redirect(to: ~p"/users/log-in")
   end
 
   @doc """
@@ -74,13 +83,17 @@ defmodule IriWeb.UserAuth do
   Will reissue the session token if it is older than the configured age.
   """
   def fetch_current_scope_for_user(conn, _opts) do
-    with {token, conn} <- ensure_user_token(conn),
-         {user, token_inserted_at} <- Accounts.get_user_by_session_token(token) do
-      conn
-      |> assign(:current_scope, Scope.for_user(user))
-      |> reissue_session_if_old(user, token_inserted_at)
+    if InstancePolicy.demo?() do
+      assign(conn, :current_scope, Demo.scope())
     else
-      nil -> assign(conn, :current_scope, Scope.for_user(nil))
+      with {token, conn} <- ensure_user_token(conn),
+           {user, token_inserted_at} <- Accounts.get_user_by_session_token(token) do
+        conn
+        |> assign(:current_scope, Scope.for_user(user))
+        |> reissue_session_if_old(user, token_inserted_at)
+      else
+        nil -> assign(conn, :current_scope, Scope.for_user(nil))
+      end
     end
   end
 
@@ -203,11 +216,35 @@ defmodule IriWeb.UserAuth do
     socket = mount_current_scope(socket, session)
 
     if socket.assigns.current_scope && socket.assigns.current_scope.user do
-      {:cont, socket}
+      {:cont, maybe_protect_demo_events(socket)}
     else
       # Bouncing a logged-out visitor to log in (or, on a fresh instance, to
       # registration) is self-explanatory; no error toast needed.
       {:halt, Phoenix.LiveView.redirect(socket, to: signed_out_path())}
+    end
+  end
+
+  def on_mount(:enforce_demo_route_policy, _params, _session, socket) do
+    if InstancePolicy.demo?() and socket.view not in demo_read_views() do
+      {:halt,
+       socket
+       |> Phoenix.LiveView.put_flash(:info, "This public demo is read-only.")
+       |> Phoenix.LiveView.redirect(to: ~p"/library")}
+    else
+      {:cont, socket}
+    end
+  end
+
+  def on_mount(:require_writable, _params, session, socket) do
+    socket = mount_current_scope(socket, session)
+
+    if InstancePolicy.demo?() do
+      {:halt,
+       socket
+       |> Phoenix.LiveView.put_flash(:info, "This public demo is read-only.")
+       |> Phoenix.LiveView.redirect(to: ~p"/library")}
+    else
+      {:cont, socket}
     end
   end
 
@@ -230,14 +267,51 @@ defmodule IriWeb.UserAuth do
   end
 
   defp mount_current_scope(socket, session) do
-    Phoenix.Component.assign_new(socket, :current_scope, fn ->
-      {user, _} =
-        if user_token = session["user_token"] do
-          Accounts.get_user_by_session_token(user_token)
-        end || {nil, nil}
+    socket = Phoenix.Component.assign(socket, :demo?, InstancePolicy.demo?())
 
-      Scope.for_user(user)
+    Phoenix.Component.assign_new(socket, :current_scope, fn ->
+      if InstancePolicy.demo?() do
+        Demo.scope()
+      else
+        {user, _} =
+          if user_token = session["user_token"] do
+            Accounts.get_user_by_session_token(user_token)
+          end || {nil, nil}
+
+        Scope.for_user(user)
+      end
     end)
+  end
+
+  @demo_read_events %{
+    IriWeb.LibraryLive => ~w(filter add_tag remove_tag toggle_filters toggle_sort_direction),
+    IriWeb.StatusManagerLive =>
+      ~w(filter toggle_sort_direction toggle_selection select_range toggle_page_selection clear_selection mark_viewed restore_viewed sync_viewed),
+    IriWeb.GameLive =>
+      ~w(show_screenshot reveal_sensitive_media close_screenshot previous_screenshot next_screenshot load_trailer close_trailer),
+    IriWeb.CollectionLive.Index => [],
+    IriWeb.CollectionLive.Show => ~w(sort_collection load_more),
+    IriWeb.CompanyLive => []
+  }
+
+  defp demo_read_views do
+    [IriWeb.CollectionLive.Shared | Map.keys(@demo_read_events)]
+  end
+
+  defp maybe_protect_demo_events(socket) do
+    if InstancePolicy.demo?() do
+      Phoenix.LiveView.attach_hook(socket, :demo_read_only, :handle_event, fn event,
+                                                                              _params,
+                                                                              socket ->
+        if event in Map.get(@demo_read_events, socket.view, []) do
+          {:cont, socket}
+        else
+          {:halt, Phoenix.LiveView.put_flash(socket, :info, "This public demo is read-only.")}
+        end
+      end)
+    else
+      socket
+    end
   end
 
   @doc "Returns the path to redirect to after log in."
@@ -272,6 +346,18 @@ defmodule IriWeb.UserAuth do
       conn
       |> redirect(to: signed_out_path())
       |> halt()
+    end
+  end
+
+  @doc "Plug for routes that must never be available in read-only demo mode."
+  def require_writable_instance(conn, _opts) do
+    if InstancePolicy.demo?() do
+      conn
+      |> put_flash(:info, "This public demo is read-only.")
+      |> redirect(to: ~p"/library")
+      |> halt()
+    else
+      conn
     end
   end
 

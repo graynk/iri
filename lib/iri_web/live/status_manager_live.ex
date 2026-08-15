@@ -329,6 +329,14 @@ defmodule IriWeb.StatusManagerLive do
             {@selection_notice}
           </p>
 
+          <p
+            :if={@demo?}
+            id="demo-bulk-read-only-notice"
+            class="rounded-xl border border-amber-300/20 bg-amber-300/5 px-4 py-3 text-sm text-amber-100"
+          >
+            Select, filter, and inspect games to preview this workflow. Ratings and status changes are disabled.
+          </p>
+
           <.form for={@filters_form} id="status-filter-form" phx-change="filter">
             <div class="space-y-3 sm:grid sm:grid-cols-2 sm:gap-3 sm:space-y-0 lg:grid-cols-[minmax(0,1fr)_12rem_15rem]">
               <div class="sm:col-span-2 lg:col-span-1">
@@ -478,10 +486,14 @@ defmodule IriWeb.StatusManagerLive do
                     phx-value-id={game.id}
                     phx-value-rating={rating}
                     phx-value-active={to_string(personal_rating(game) == rating)}
+                    disabled={@demo?}
                     aria-label={rating_action_label(game, rating)}
                     aria-pressed={to_string(selected_rating_face?(game, rating))}
                     title={rating_action_label(game, rating)}
-                    class={status_rating_class(selected_rating_face?(game, rating), rating)}
+                    class={[
+                      status_rating_class(selected_rating_face?(game, rating), rating),
+                      @demo? && "cursor-not-allowed opacity-50"
+                    ]}
                   >
                     <.rating_face rating={rating_face_value(game, rating)} class="size-4" />
                   </button>
@@ -494,11 +506,12 @@ defmodule IriWeb.StatusManagerLive do
                     phx-value-id={game.id}
                     phx-value-rating={format_rating_value(half_toggle_value(game))}
                     phx-value-active="false"
+                    disabled={@demo?}
                     aria-label={half_toggle_label(game)}
                     aria-pressed={to_string(half_rating?(personal_rating(game)))}
                     title={half_toggle_label(game)}
                     class={[
-                      "ml-1 grid size-7 place-items-center rounded-md border text-[0.65rem] font-bold transition focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-teal-300",
+                      "ml-1 grid size-7 place-items-center rounded-md border text-[0.65rem] font-bold transition focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-teal-300 disabled:cursor-not-allowed disabled:opacity-50",
                       half_rating?(personal_rating(game)) &&
                         "border-violet-400/50 bg-violet-400/15 text-violet-200",
                       !half_rating?(personal_rating(game)) &&
@@ -565,7 +578,7 @@ defmodule IriWeb.StatusManagerLive do
               phx-click="apply_status"
               phx-value-state="playing"
               phx-disable-with="Updating…"
-              disabled={MapSet.size(@selected_ids) == 0}
+              disabled={@demo? or MapSet.size(@selected_ids) == 0}
               class="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-sky-400/15 px-2 py-2 text-xs font-semibold sm:px-3 sm:text-sm text-sky-200 ring-1 ring-sky-400/30 transition hover:bg-sky-400/25 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <.icon name="hero-play-circle" class="size-4" /> Playing
@@ -576,7 +589,7 @@ defmodule IriWeb.StatusManagerLive do
               phx-click="apply_status"
               phx-value-state="backlog"
               phx-disable-with="Updating…"
-              disabled={MapSet.size(@selected_ids) == 0}
+              disabled={@demo? or MapSet.size(@selected_ids) == 0}
               class="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-violet-400/15 px-2 py-2 text-xs font-semibold sm:px-3 sm:text-sm text-violet-200 ring-1 ring-violet-400/30 transition hover:bg-violet-400/25 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <.icon name="hero-bookmark" class="size-4" /> Want to play
@@ -587,7 +600,7 @@ defmodule IriWeb.StatusManagerLive do
               phx-click="apply_status"
               phx-value-state="completed"
               phx-disable-with="Updating…"
-              disabled={MapSet.size(@selected_ids) == 0}
+              disabled={@demo? or MapSet.size(@selected_ids) == 0}
               class="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-emerald-400/15 px-2 py-2 text-xs font-semibold sm:px-3 sm:text-sm text-emerald-200 ring-1 ring-emerald-400/30 transition hover:bg-emerald-400/25 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <.icon name="hero-check-circle" class="size-4" /> Completed
@@ -598,7 +611,7 @@ defmodule IriWeb.StatusManagerLive do
               phx-click="apply_status"
               phx-value-state="dropped"
               phx-disable-with="Updating…"
-              disabled={MapSet.size(@selected_ids) == 0}
+              disabled={@demo? or MapSet.size(@selected_ids) == 0}
               class="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-rose-400/15 px-2 py-2 text-xs font-semibold sm:px-3 sm:text-sm text-rose-200 ring-1 ring-rose-400/30 transition hover:bg-rose-400/25 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <.icon name="hero-no-symbol" class="size-4" /> Dropped
@@ -609,7 +622,7 @@ defmodule IriWeb.StatusManagerLive do
               phx-click="apply_status"
               phx-value-state="not_played"
               phx-disable-with="Updating…"
-              disabled={MapSet.size(@selected_ids) == 0}
+              disabled={@demo? or MapSet.size(@selected_ids) == 0}
               class="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-600 px-2 py-2 text-xs font-semibold sm:px-3 sm:text-sm text-slate-300 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Not played

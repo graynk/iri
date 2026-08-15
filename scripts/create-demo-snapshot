@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage: create-demo-snapshot SOURCE_DB OUTPUT_DB SOURCE_USERNAME [--exclude FILE]
+
+Copies SOURCE_DB, retains SOURCE_USERNAME as demo, and removes all other users.
+
+  --exclude FILE  Drop individual games from the snapshot. One entry per line,
+                  either a numeric game id or an exact slug; blank lines and
+                  # comments are ignored. Every entry must match exactly one
+                  game or the run aborts.
+USAGE
+}
+
+if [[ $# -lt 3 ]]; then
+  usage
+  exit 64
+fi
+
+command -v sqlite3 >/dev/null || {
+  echo "sqlite3 is required." >&2
+  exit 69
+}
+
+source_db=$1
+output_db=$2
+source_username=$3
+shift 3
+
+exclude_file=""
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --exclude)
+      exclude_file=${2:-}
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage
+      exit 64
+      ;;
+  esac
+done
+
+if [[ -n "$exclude_file" && ! -f "$exclude_file" ]]; then
+  echo "Exclusion file does not exist: $exclude_file" >&2
+  exit 66
+fi
+
+demo_username=demo
+demo_password=demodemo
+demo_password_hash='$2b$12$/1ghtZjJMaUzwX8TosiBHemkjC4MVbTzSAZ85dM9A0bKRIWUBVVnC'
+
+if [[ ! -f "$source_db" ]]; then
+  echo "Source database does not exist or is not a regular file: $source_db" >&2
+  exit 66
+fi
+
+if [[ -e "$output_db" ]]; then
+  echo "Refusing to overwrite existing output: $output_db" >&2
+  exit 73
+fi
+
+output_dir=$(dirname "$output_db")
+mkdir -p "$output_dir"
+
+temp_dir=$(mktemp -d "$output_dir/.iri-demo.XXXXXX")
+temp_db="$temp_dir/iri.db"
+
+cleanup() {
+  rm -f -- "$temp_db"
+  rmdir "$temp_dir" 2>/dev/null || true
+}
+
+trap cleanup EXIT
+
+escaped_temp_db=${temp_db//\'/\'\'}
+sqlite3 -bail "$source_db" ".backup '$escaped_temp_db'"
+
+has_users_table=$(sqlite3 -bail "$temp_db" \
+  "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'users';")
+
+if [[ "$has_users_table" != "1" ]]; then
+  echo "Source database does not contain IRI's users table: $source_db" >&2
+  exit 65
+fi
+
+escaped_source_username=${source_username//\'/\'\'}
+user_count=$(sqlite3 -bail "$temp_db" \
+  "SELECT count(*) FROM users WHERE username = '$escaped_source_username';")
+
+if [[ "$user_count" != "1" ]]; then
+  echo "Expected exactly one user named '$source_username'; found $user_count." >&2
+  exit 65
+fi
+
+target_user_id=$(sqlite3 -bail "$temp_db" \
+  "SELECT id FROM users WHERE username = '$escaped_source_username';")
+
+sqlite3 -bail "$temp_db" >/dev/null <<SQL
+PRAGMA foreign_keys = ON;
+PRAGMA secure_delete = ON;
+BEGIN IMMEDIATE;
+DELETE FROM users_tokens;
+DELETE FROM provider_accounts
+WHERE owner_user_id IS NOT NULL AND owner_user_id <> $target_user_id;
+DELETE FROM users WHERE id <> $target_user_id;
+UPDATE users
+SET username = '$demo_username',
+    hashed_password = '$demo_password_hash',
+    role = 'viewer'
+WHERE id = $target_user_id;
+COMMIT;
+SQL
+
+excluded_titles=()
+
+if [[ -n "$exclude_file" ]]; then
+  while IFS= read -r raw || [[ -n "$raw" ]]; do
+    entry=${raw%%#*}
+    entry=$(echo "$entry" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    [[ -z "$entry" ]] && continue
+
+    escaped=${entry//\'/\'\'}
+
+    if [[ "$entry" =~ ^[0-9]+$ ]]; then
+      predicate="id = $entry"
+    else
+      predicate="slug = '$escaped'"
+    fi
+
+    matches=$(sqlite3 -bail "$temp_db" "SELECT count(*) FROM games WHERE $predicate;")
+
+    if [[ "$matches" != "1" ]]; then
+      echo "Exclusion '$entry' matched $matches games; expected exactly 1." >&2
+      echo "Use a numeric game id or an exact slug." >&2
+      exit 65
+    fi
+
+    excluded_titles+=("$(sqlite3 -bail "$temp_db" "SELECT title FROM games WHERE $predicate;")")
+
+    sqlite3 -bail "$temp_db" >/dev/null <<SQL
+PRAGMA foreign_keys = ON;
+PRAGMA secure_delete = ON;
+BEGIN IMMEDIATE;
+-- Sources go first. game_sources.game_id is ON DELETE SET NULL, so deleting
+-- only the game would leave its sources behind as unmatched entries still
+-- showing the title in the library.
+DELETE FROM game_sources WHERE game_id IN (SELECT id FROM games WHERE $predicate);
+DELETE FROM games WHERE $predicate;
+COMMIT;
+SQL
+  done <"$exclude_file"
+fi
+
+# Removing the other users' accounts cascaded their library items away, but left
+# their games and cached media behind with nothing pointing at them. Those games
+# cannot be reached in the demo, so packaging their media would ship other
+# people's library content for no reason. This mirrors
+# Iri.Library.prune_orphaned_games/0.
+orphan_games_before=$(sqlite3 -bail "$temp_db" "SELECT count(*) FROM games;")
+
+sqlite3 -bail "$temp_db" >/dev/null <<'SQL'
+PRAGMA foreign_keys = ON;
+PRAGMA secure_delete = ON;
+BEGIN IMMEDIATE;
+DELETE FROM game_sources
+WHERE id NOT IN (SELECT game_source_id FROM library_items);
+DELETE FROM games
+WHERE id NOT IN (SELECT game_id FROM game_sources WHERE game_id IS NOT NULL);
+COMMIT;
+SQL
+
+orphan_games_after=$(sqlite3 -bail "$temp_db" "SELECT count(*) FROM games;")
+pruned_games=$((orphan_games_before - orphan_games_after))
+
+sqlite3 -bail "$temp_db" >/dev/null <<'SQL'
+VACUUM;
+PRAGMA journal_mode = DELETE;
+SQL
+
+integrity=$(sqlite3 -bail "$temp_db" "PRAGMA integrity_check;")
+if [[ "$integrity" != "ok" ]]; then
+  echo "Snapshot integrity check failed: $integrity" >&2
+  exit 65
+fi
+
+foreign_key_violations=$(sqlite3 -bail "$temp_db" "PRAGMA foreign_key_check;")
+if [[ -n "$foreign_key_violations" ]]; then
+  echo "Snapshot contains foreign-key violations:" >&2
+  echo "$foreign_key_violations" >&2
+  exit 65
+fi
+
+chmod 0444 "$temp_db"
+mv "$temp_db" "$output_db"
+rmdir "$temp_dir"
+trap - EXIT
+
+echo "Created read-only demo snapshot: $output_db"
+echo "Converted identity: $source_username -> $demo_username"
+echo "Demo password: $demo_password"
+echo "Other users, their owned provider accounts, and all authentication tokens were removed."
+echo "Pruned $pruned_games game(s) left unreachable by that removal, with their cached media."
+
+if [[ ${#excluded_titles[@]} -gt 0 ]]; then
+  echo "Excluded ${#excluded_titles[@]} game(s):"
+  for title in "${excluded_titles[@]}"; do
+    echo "  - $title"
+  done
+elif [[ -n "$exclude_file" ]]; then
+  echo "Exclusion file contained no entries: $exclude_file"
+fi
+
+echo "Review personal notes, collection comments, and provider identities before publishing."

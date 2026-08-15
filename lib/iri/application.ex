@@ -25,19 +25,16 @@ defmodule Iri.Application do
     :ok = Iri.LocalTime.validate!()
 
     children =
-      [
-        Iri.Repo,
-        {Ecto.Migrator,
-         repos: Application.fetch_env!(:iri, :ecto_repos), skip: skip_migrations?()},
-        {Phoenix.PubSub, name: Iri.PubSub},
-        {Task.Supervisor, name: Iri.Sync.TaskSupervisor},
-        Iri.Integrations.GOG.RateLimiter,
-        Iri.Integrations.IGDB.RateLimiter,
-        Iri.Integrations.IGDB.TokenManager
-      ] ++
-        ai_worker_child() ++
-        scheduler_child() ++
-        [IriWeb.Endpoint]
+      if Iri.InstancePolicy.demo?() do
+        [
+          Iri.Repo,
+          Iri.Demo,
+          {Phoenix.PubSub, name: Iri.PubSub},
+          IriWeb.Endpoint
+        ]
+      else
+        normal_children()
+      end
 
     opts = [strategy: :one_for_one, name: Iri.Supervisor]
     Supervisor.start_link(children, opts)
@@ -51,6 +48,21 @@ defmodule Iri.Application do
 
   defp skip_migrations?() do
     System.get_env("RELEASE_NAME") == nil
+  end
+
+  defp normal_children do
+    [
+      Iri.Repo,
+      {Ecto.Migrator, repos: Application.fetch_env!(:iri, :ecto_repos), skip: skip_migrations?()},
+      {Phoenix.PubSub, name: Iri.PubSub},
+      {Task.Supervisor, name: Iri.Sync.TaskSupervisor},
+      Iri.Integrations.GOG.RateLimiter,
+      Iri.Integrations.IGDB.RateLimiter,
+      Iri.Integrations.IGDB.TokenManager
+    ] ++
+      ai_worker_child() ++
+      scheduler_child() ++
+      [IriWeb.Endpoint]
   end
 
   defp scheduler_child do

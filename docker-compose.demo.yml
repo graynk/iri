@@ -1,0 +1,19 @@
+services:
+  iri-demo:
+    build: .
+    env_file: ${DEMO_ENV_FILE:-demo.env}
+    environment:
+      INSTANCE_MODE: DEMO
+      DATABASE_PATH: /data/iri.db
+      MEDIA_ROOT: /data/media
+    ports:
+      - "4000:4000"
+    volumes:
+      - type: bind
+        source: ./demo
+        target: /data
+        read_only: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    restart: unless-stopped

@@ -16,9 +16,16 @@
 # along with IRI. If not, see <https://www.gnu.org/licenses/>.
 
 defmodule Iri.InstancePolicy do
-  @moduledoc "Runtime policy for account registration and inherited library sharing."
+  @moduledoc "Runtime policy for account registration, sharing, and read-only demo instances."
 
   @type mode :: :family | :public
+  @type instance_mode :: :normal | :demo
+
+  @doc "Returns whether this process is serving a read-only public demo."
+  def demo?, do: Application.get_env(:iri, :instance_mode, :normal) == :demo
+
+  @doc "Returns whether mutations are permitted by this instance profile."
+  def writable?, do: not demo?()
 
   @doc "Returns the instance's configured Family or Public mode."
   def mode, do: Application.get_env(:iri, :mode, :family)
@@ -27,7 +34,7 @@ defmodule Iri.InstancePolicy do
   def family?, do: mode() == :family
 
   @doc "Returns whether public account registration is enabled."
-  def public_registration?, do: mode() == :public
+  def public_registration?, do: writable?() and mode() == :public
 
   @doc "Returns whether a new provider account inherits instance-wide sharing."
   def account_shared_by_default?, do: family?()

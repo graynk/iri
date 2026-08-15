@@ -15,3 +15,10 @@ test
 AGENTS.md
 IMPLEMENTATION_PLAN.md
 README.md
+
+# The demo stage bakes the staged snapshot and cached media into the image, so
+# ./demo has to reach the build context. The rules above do not match it today
+# (*.db only matches the root), but these keep that explicit if they ever widen.
+!demo
+!demo/iri.db
+!demo/media

@@ -87,6 +87,13 @@ defmodule IriWeb.GameLive.Detail do
               >
                 My log
               </h2>
+              <p
+                :if={@demo?}
+                id="demo-game-read-only-notice"
+                class="rounded-lg border border-amber-300/20 bg-amber-300/5 px-3 py-2 text-xs leading-relaxed text-amber-100"
+              >
+                This log shows the snapshot owner's data. Editing controls are disabled in the demo.
+              </p>
 
               <div
                 id="game-state-controls"
@@ -99,8 +106,13 @@ defmodule IriWeb.GameLive.Detail do
                   type="button"
                   phx-click="set_game_state"
                   phx-value-state="playing"
+                  disabled={@demo?}
+                  title={@demo? && "Read-only demo"}
                   aria-pressed={to_string(completion_state(@game_state) == "playing")}
-                  class={["w-full justify-center", state_button_class(@game_state, "playing")]}
+                  class={[
+                    "w-full justify-center disabled:cursor-not-allowed disabled:opacity-55",
+                    state_button_class(@game_state, "playing")
+                  ]}
                 >
                   <.icon name="hero-play-circle" class="size-4" /> Playing
                 </button>
@@ -109,8 +121,13 @@ defmodule IriWeb.GameLive.Detail do
                   type="button"
                   phx-click="set_game_state"
                   phx-value-state="backlog"
+                  disabled={@demo?}
+                  title={@demo? && "Read-only demo"}
                   aria-pressed={to_string(completion_state(@game_state) == "backlog")}
-                  class={["w-full justify-center", state_button_class(@game_state, "backlog")]}
+                  class={[
+                    "w-full justify-center disabled:cursor-not-allowed disabled:opacity-55",
+                    state_button_class(@game_state, "backlog")
+                  ]}
                 >
                   <.icon name="hero-bookmark" class="size-4" /> Want to play
                 </button>
@@ -119,8 +136,13 @@ defmodule IriWeb.GameLive.Detail do
                   type="button"
                   phx-click="set_game_state"
                   phx-value-state="completed"
+                  disabled={@demo?}
+                  title={@demo? && "Read-only demo"}
                   aria-pressed={to_string(completion_state(@game_state) == "completed")}
-                  class={["w-full justify-center", state_button_class(@game_state, "completed")]}
+                  class={[
+                    "w-full justify-center disabled:cursor-not-allowed disabled:opacity-55",
+                    state_button_class(@game_state, "completed")
+                  ]}
                 >
                   <.icon name="hero-check-circle" class="size-4" /> Completed
                 </button>
@@ -129,15 +151,20 @@ defmodule IriWeb.GameLive.Detail do
                   type="button"
                   phx-click="set_game_state"
                   phx-value-state="dropped"
+                  disabled={@demo?}
+                  title={@demo? && "Read-only demo"}
                   aria-pressed={to_string(completion_state(@game_state) == "dropped")}
-                  class={["w-full justify-center", state_button_class(@game_state, "dropped")]}
+                  class={[
+                    "w-full justify-center disabled:cursor-not-allowed disabled:opacity-55",
+                    state_button_class(@game_state, "dropped")
+                  ]}
                 >
                   <.icon name="hero-no-symbol" class="size-4" /> Dropped
                 </button>
               </div>
 
               <.form for={@rating_form} id="personal-rating" phx-change="set_rating">
-                <fieldset>
+                <fieldset disabled={@demo?}>
                   <legend class="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
                     My rating
                   </legend>
@@ -246,8 +273,9 @@ defmodule IriWeb.GameLive.Detail do
                     rows="5"
                     placeholder="Private note about this game…"
                     aria-label="Private note about this game"
-                    phx-blur="save_note"
-                    class="min-h-28 w-full resize-y rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-base leading-6 text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-teal-300 focus:ring-2 focus:ring-teal-300/20 sm:text-sm"
+                    readonly={@demo?}
+                    phx-blur={if(@demo?, do: nil, else: "save_note")}
+                    class="min-h-28 w-full resize-y rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-base leading-6 text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-teal-300 focus:ring-2 focus:ring-teal-300/20 read-only:cursor-default read-only:text-slate-400 sm:text-sm"
                   />
                 </.form>
               </div>
@@ -266,6 +294,7 @@ defmodule IriWeb.GameLive.Detail do
                     <div id="game-collection-picker-empty" class="p-4">
                       <p class="text-sm text-slate-400">You do not have any collections yet.</p>
                       <.link
+                        :if={!@demo?}
                         navigate={~p"/collections/new"}
                         class="mt-3 inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-teal-400/30 px-3 py-1.5 text-xs font-semibold text-teal-200 transition hover:bg-teal-400/10"
                       >
@@ -283,7 +312,13 @@ defmodule IriWeb.GameLive.Detail do
                         <label
                           :for={membership <- @collection_memberships}
                           for={"game-collection-#{membership.id}"}
-                          class="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-800"
+                          class={[
+                            "flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm text-slate-200 transition",
+                            if(@demo?,
+                              do: "cursor-default",
+                              else: "cursor-pointer hover:bg-slate-800"
+                            )
+                          ]}
                         >
                           <input
                             id={"game-collection-#{membership.id}"}
@@ -291,6 +326,7 @@ defmodule IriWeb.GameLive.Detail do
                             name="collections[collection_ids][]"
                             value={membership.id}
                             checked={membership.member?}
+                            disabled={@demo?}
                             class="size-4 rounded border-slate-600 bg-slate-950 text-teal-300 focus:ring-teal-300"
                           />
                           <span class="min-w-0 flex-1 truncate">{membership.name}</span>
@@ -298,12 +334,14 @@ defmodule IriWeb.GameLive.Detail do
                       </div>
                       <div class="flex items-center justify-between gap-3 border-t border-slate-800 p-3">
                         <.link
+                          :if={!@demo?}
                           navigate={~p"/collections/new"}
                           class="text-xs font-medium text-slate-500 transition hover:text-teal-200"
                         >
                           New collection
                         </.link>
                         <button
+                          :if={!@demo?}
                           id="save-game-collections"
                           type="submit"
                           phx-disable-with="Saving…"
@@ -318,6 +356,7 @@ defmodule IriWeb.GameLive.Detail do
               </details>
 
               <div
+                :if={!@demo?}
                 id="game-log-footer"
                 class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-slate-800 pt-2 text-[11px] text-slate-500"
               >

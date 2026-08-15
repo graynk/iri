@@ -169,6 +169,7 @@ defmodule IriWeb.LibraryLive do
               </div>
             </div>
             <.button
+              :if={!@demo?}
               id="add-games-link"
               navigate={~p"/library/add"}
               class="mt-4 gap-2 sm:mt-1"

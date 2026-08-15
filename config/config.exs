@@ -34,6 +34,7 @@ config :iri,
   ecto_repos: [Iri.Repo],
   generators: [timestamp_type: :utc_datetime],
   mode: :family,
+  instance_mode: :normal,
   time_zone: "Etc/UTC"
 
 config :elixir, :time_zone_database, Zoneinfo.TimeZoneDatabase

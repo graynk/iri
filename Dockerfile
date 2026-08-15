@@ -67,3 +67,18 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 
 # Iri.Application supervises Ecto.Migrator before starting the web endpoint.
 CMD ["/app/bin/server"]
+
+# The read-only demo bakes its snapshot and cached media into the image so a
+# host needs no volume and no seeding step. Stage ./demo first (see DEMO.md);
+# the build fails with a missing-context error if you have not.
+#
+# This is the final stage, so a plain build on this branch produces the demo
+# image. It deliberately avoids /data: that path is a declared VOLUME above, and
+# baking data into a volume path invites an anonymous volume at runtime.
+FROM app AS demo
+
+COPY --chown=iri:iri demo /srv/demo
+
+ENV INSTANCE_MODE=DEMO \
+    DATABASE_PATH=/srv/demo/iri.db \
+    MEDIA_ROOT=/srv/demo/media

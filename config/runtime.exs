@@ -26,6 +26,25 @@ port = String.to_integer(System.get_env("PORT", "4000"))
 
 config :iri, IriWeb.Endpoint, http: [port: port]
 
+instance_mode =
+  case System.get_env("INSTANCE_MODE", "NORMAL")
+       |> String.trim()
+       |> String.upcase() do
+    "" -> :normal
+    "NORMAL" -> :normal
+    "DEMO" -> :demo
+    value -> raise "INSTANCE_MODE must be NORMAL or DEMO, got: #{inspect(value)}"
+  end
+
+config :iri, :instance_mode, instance_mode
+
+if instance_mode == :demo do
+  config :iri, Iri.Repo,
+    mode: :readonly,
+    journal_mode: nil,
+    custom_pragmas: [query_only: true]
+end
+
 # Development servers can point at an alternate database, such as a demo
 # snapshot. Production requires DATABASE_PATH and resolves media beside it below.
 dev_database_path = if config_env() == :dev, do: System.get_env("DATABASE_PATH")
@@ -102,7 +121,7 @@ ai_matching = %{
 
 config :iri,
   ai_matching: ai_matching,
-  ai_worker_enabled: config_env() != :test
+  ai_worker_enabled: config_env() != :test and instance_mode != :demo
 
 non_empty_env = fn variable ->
   case System.get_env(variable) do
@@ -126,7 +145,8 @@ if config_env() != :test and is_binary(steam_web_api_key) and steam_web_api_key 
   config :iri, :steam_web_api_key, steam_web_api_key
 end
 
-if config_env() == :prod and (is_nil(igdb_client_id) or is_nil(igdb_client_secret)) do
+if config_env() == :prod and instance_mode != :demo and
+     (is_nil(igdb_client_id) or is_nil(igdb_client_secret)) do
   raise """
   environment variables IGDB_CLIENT_ID and IGDB_CLIENT_SECRET are missing.
   IRI requires IGDB metadata to import and browse its game library.
@@ -158,7 +178,7 @@ if config_env() == :prod do
     end
   end
 
-  config :iri, scheduler_enabled: true
+  config :iri, scheduler_enabled: instance_mode != :demo
 
   database_path =
     System.get_env("DATABASE_PATH") ||

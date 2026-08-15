@@ -53,13 +53,6 @@ defmodule IriWeb.Router do
     get "/media/:id", MediaController, :show
   end
 
-  scope "/", IriWeb do
-    pipe_through [:browser, :require_authenticated_user]
-
-    get "/auth/steam", SteamOpenIDController, :start
-    get "/auth/steam/callback", SteamOpenIDController, :callback
-  end
-
   ## Authentication routes
 
   # This optional-authentication session is declared before the dynamic
@@ -68,18 +61,33 @@ defmodule IriWeb.Router do
   scope "/", IriWeb do
     pipe_through [:browser]
 
-    get "/users/log-in/steam", SteamOpenIDController, :start_login
-    get "/users/log-in/steam/callback", SteamOpenIDController, :login_callback
-
     live_session :current_user,
-      on_mount: [{IriWeb.UserAuth, :mount_current_scope}] do
+      on_mount: [
+        {IriWeb.UserAuth, :mount_current_scope},
+        {IriWeb.UserAuth, :enforce_demo_route_policy}
+      ] do
       live "/collections/shared", CollectionLive.Shared, :show
       live "/users/register", UserLive.Registration, :new
       live "/users/log-in", UserLive.Login, :new
     end
+  end
+
+  scope "/", IriWeb do
+    pipe_through [:browser, :require_writable_instance]
+
+    get "/users/log-in/steam", SteamOpenIDController, :start_login
+    get "/users/log-in/steam/callback", SteamOpenIDController, :login_callback
 
     post "/users/log-in", UserSessionController, :create
     delete "/users/log-out", UserSessionController, :delete
+  end
+
+  scope "/", IriWeb do
+    pipe_through [:browser, :require_authenticated_user, :require_writable_instance]
+
+    get "/auth/steam", SteamOpenIDController, :start
+    get "/auth/steam/callback", SteamOpenIDController, :callback
+    post "/settings/update-password", UserSessionController, :update_password
   end
 
   scope "/", IriWeb do
@@ -90,7 +98,10 @@ defmodule IriWeb.Router do
     get "/collections/:id/export.zip", CollectionExportController, :static
 
     live_session :require_authenticated_user,
-      on_mount: [{IriWeb.UserAuth, :require_authenticated}] do
+      on_mount: [
+        {IriWeb.UserAuth, :require_authenticated},
+        {IriWeb.UserAuth, :enforce_demo_route_policy}
+      ] do
       live "/library", LibraryLive, :index
       live "/library/statuses", StatusManagerLive, :index
       live "/library/add", CustomGameLive, :new
@@ -105,15 +116,21 @@ defmodule IriWeb.Router do
       live "/settings/integrations/epic/import", Settings.EpicImportLive, :new
       live "/settings/integrations/psn/import", Settings.PSNImportLive, :new
     end
-
-    post "/settings/update-password", UserSessionController, :update_password
   end
 
   scope "/", IriWeb do
-    pipe_through [:browser, :require_authenticated_user, :require_admin_user]
+    pipe_through [
+      :browser,
+      :require_authenticated_user,
+      :require_writable_instance,
+      :require_admin_user
+    ]
 
     live_session :require_admin_user,
-      on_mount: [{IriWeb.UserAuth, :require_admin}] do
+      on_mount: [
+        {IriWeb.UserAuth, :require_admin},
+        {IriWeb.UserAuth, :require_writable}
+      ] do
       live "/settings/accounts", Settings.AccountsLive, :index
       live "/settings/sync", Settings.SyncLive, :index
       live "/settings/matches", Settings.MatchesLive, :index

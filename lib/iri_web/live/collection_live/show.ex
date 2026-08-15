@@ -152,6 +152,7 @@ defmodule IriWeb.CollectionLive.Show do
               </span>
             </span>
             <.link
+              :if={!@demo?}
               id="edit-collection"
               navigate={~p"/collections/#{@collection.id}/edit"}
               class="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-800"
