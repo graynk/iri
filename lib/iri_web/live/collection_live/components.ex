@@ -208,14 +208,14 @@ defmodule IriWeb.CollectionLive.Components do
         :if={@linked}
         navigate={~p"/games/#{@entry.slug}"}
         class={[
-          "truncate text-sm font-semibold text-slate-100 hover:text-teal-100",
+          "block break-words text-sm font-semibold text-slate-100 hover:text-teal-100",
           "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300",
           @stretched && "static after:absolute after:inset-0"
         ]}
       >
         {@entry.title}
       </.link>
-      <p :if={!@linked} class="truncate text-sm font-semibold text-slate-100">
+      <p :if={!@linked} class="break-words text-sm font-semibold text-slate-100">
         {@entry.title}
       </p>
       <p :if={@entry.comment} class="mt-1 text-xs leading-relaxed text-slate-400">
