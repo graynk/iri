@@ -23,7 +23,7 @@ defmodule IriWeb.CollectionLive.Show do
   alias Iri.Collections
   alias IriWeb.CollectionLive.Components
 
-  @sort_keys ~w(title release_year igdb_rating my_rating)
+  @sort_keys ~w(title release_date igdb_rating my_rating)
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do

@@ -549,7 +549,7 @@ defmodule Iri.LibraryTest do
              Library.list_source_games(scope, %{"states" => ["not_played"]})
   end
 
-  test "sorts matched games by release year and always leaves unknown games last" do
+  test "sorts matched games by release date and always leaves unknown games last" do
     account = steam_account_fixture("76561198000000001", "Owner")
     assert {:ok, _counts} = Reconciler.reconcile(account, games_fixture())
 
@@ -565,12 +565,12 @@ defmodule Iri.LibraryTest do
 
     counter_strike.game_id
     |> then(&Repo.get!(Game, &1))
-    |> Game.changeset(%{release_year: 2010})
+    |> Game.changeset(%{release_date: ~D[2010-06-01], release_year: 2010})
     |> Repo.update!()
 
     portal.game_id
     |> then(&Repo.get!(Game, &1))
-    |> Game.changeset(%{release_year: 2020})
+    |> Game.changeset(%{release_date: ~D[2020-06-01], release_year: 2020})
     |> Repo.update!()
 
     assert {:ok, _counts} =
@@ -584,20 +584,72 @@ defmodule Iri.LibraryTest do
 
     assert {:ok, descending} =
              Library.list_source_games(scope, %{
-               "sort" => "release_year",
+               "sort" => "release_date",
                "direction" => "desc"
              })
 
-    assert descending.filters["sort"] == "release_year"
+    assert descending.filters["sort"] == "release_date"
     assert Enum.map(descending.entries, & &1.external_id) == ["620", "10", "999"]
 
     assert {:ok, ascending} =
              Library.list_source_games(scope, %{
-               "sort" => "release_year",
+               "sort" => "release_date",
                "direction" => "asc"
              })
 
     assert Enum.map(ascending.entries, & &1.external_id) == ["10", "620", "999"]
+
+    assert {:ok, legacy} =
+             Library.list_source_games(scope, %{
+               "sort" => "release_date",
+               "direction" => "asc"
+             })
+
+    assert legacy.filters["sort"] == "release_date"
+    assert Enum.map(legacy.entries, & &1.external_id) == ["10", "620", "999"]
+  end
+
+  test "orders games released in the same year by release date" do
+    account = steam_account_fixture("76561198000000001", "Owner")
+    assert {:ok, _counts} = Reconciler.reconcile(account, games_fixture())
+
+    assert {:ok, _counts} =
+             Enricher.enrich(
+               %{"steam_source_id" => 1},
+               client: ClientStub,
+               cache_cover: fn _game_id, _options -> {:ok, :no_cover} end
+             )
+
+    counter_strike = Repo.get_by!(GameSource, provider: :steam, external_id: "10")
+    portal = Repo.get_by!(GameSource, provider: :steam, external_id: "620")
+
+    counter_strike.game_id
+    |> then(&Repo.get!(Game, &1))
+    |> Game.changeset(%{release_year: 2010, release_date: ~D[2010-11-01]})
+    |> Repo.update!()
+
+    portal.game_id
+    |> then(&Repo.get!(Game, &1))
+    |> Game.changeset(%{release_year: 2010, release_date: ~D[2010-03-01]})
+    |> Repo.update!()
+
+    scope = viewer_user_fixture() |> Scope.for_user()
+
+    assert {:ok, ascending} =
+             Library.list_source_games(scope, %{
+               "sort" => "release_date",
+               "direction" => "asc"
+             })
+
+    assert Enum.map(ascending.entries, & &1.external_id) == ["620", "10"]
+
+    assert {:ok, descending} =
+             Library.list_source_games(scope, %{
+               "sort" => "release_date",
+               "direction" => "desc"
+             })
+
+    assert Enum.map(descending.entries, & &1.external_id) == ["10", "620"]
   end
 
   test "paginates deterministically across equal personal ratings" do

@@ -331,9 +331,16 @@ defmodule Iri.CollectionsTest do
     alpha = game_fixture(account, "Alpha", nil, 40.0)
     beta = game_fixture(account, "Beta", nil, 90.0)
     gamma = game_fixture(account, "Gamma", nil, nil)
-    alpha |> Ecto.Changeset.change(release_year: 2010) |> Repo.update!()
-    beta |> Ecto.Changeset.change(release_year: 2020) |> Repo.update!()
-    gamma |> Ecto.Changeset.change(release_year: nil) |> Repo.update!()
+
+    alpha
+    |> Ecto.Changeset.change(release_date: ~D[2010-06-01], release_year: 2010)
+    |> Repo.update!()
+
+    beta
+    |> Ecto.Changeset.change(release_date: ~D[2020-02-01], release_year: 2020)
+    |> Repo.update!()
+
+    gamma |> Ecto.Changeset.change(release_date: nil, release_year: nil) |> Repo.update!()
     {:ok, collection} = Collections.create_collection(owner_scope, %{name: "Sorted"})
 
     assert {:ok, 1} = Collections.add_games(owner_scope, collection.id, [gamma.id])
@@ -357,15 +364,20 @@ defmodule Iri.CollectionsTest do
 
     assert Enum.map(by_title_asc, & &1.title) == ["Alpha", "Beta", "Gamma"]
 
-    assert {:ok, _collection, by_year_desc, "release_year", "desc"} =
+    assert {:ok, _collection, by_release_desc, "release_date", "desc"} =
+             Collections.list_collection_games(owner_scope, collection.id, "release_date", "desc")
+
+    assert Enum.map(by_release_desc, & &1.title) == ["Beta", "Alpha", "Gamma"]
+
+    assert {:ok, _collection, by_release_asc, "release_date", "asc"} =
+             Collections.list_collection_games(owner_scope, collection.id, "release_date", "asc")
+
+    assert Enum.map(by_release_asc, & &1.title) == ["Alpha", "Beta", "Gamma"]
+
+    assert {:ok, _collection, legacy_sort, "release_date", "desc"} =
              Collections.list_collection_games(owner_scope, collection.id, "release_year", "desc")
 
-    assert Enum.map(by_year_desc, & &1.title) == ["Beta", "Alpha", "Gamma"]
-
-    assert {:ok, _collection, by_year_asc, "release_year", "asc"} =
-             Collections.list_collection_games(owner_scope, collection.id, "release_year", "asc")
-
-    assert Enum.map(by_year_asc, & &1.title) == ["Alpha", "Beta", "Gamma"]
+    assert Enum.map(legacy_sort, & &1.title) == ["Beta", "Alpha", "Gamma"]
 
     assert {:ok, _collection, by_igdb, "igdb_rating", "desc"} =
              Collections.list_collection_games(owner_scope, collection.id, "igdb_rating", "desc")

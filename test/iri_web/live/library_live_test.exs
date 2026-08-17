@@ -532,7 +532,7 @@ defmodule IriWeb.LibraryLiveTest do
     assert has_element?(library, "#library-sort option[value='rating']", "Metadata rating")
     assert has_element?(library, "#library-sort option[value='my_rating']", "My rating")
     assert has_element?(library, "#library-sort option[value='playtime']", "Playtime")
-    assert has_element?(library, "#library-sort option[value='release_year']", "Year of release")
+    assert has_element?(library, "#library-sort option[value='release_date']", "Release date")
 
     assert has_element?(
              library,

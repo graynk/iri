@@ -27,7 +27,7 @@ defmodule Iri.Library.StatusManager do
   alias Iri.Repo
 
   @page_size 100
-  @sorts ~w(title release_year playtime)
+  @sorts ~w(title release_date playtime)
   @statuses ~w(all backlog playing completed dropped not_played)
 
   @doc "Returns a paginated, scoped game list for bulk state and rating management."
@@ -188,21 +188,21 @@ defmodule Iri.Library.StatusManager do
       on: playtime.game_id == game.id
   end
 
-  defp apply_sort(query, "release_year", "desc") do
+  defp apply_sort(query, "release_date", "desc") do
     from [game: game] in query,
       order_by: [
-        asc: is_nil(game.release_year),
-        desc: game.release_year,
+        asc: is_nil(game.release_date),
+        desc: game.release_date,
         asc: game.normalized_title,
         asc: game.id
       ]
   end
 
-  defp apply_sort(query, "release_year", _asc) do
+  defp apply_sort(query, "release_date", _asc) do
     from [game: game] in query,
       order_by: [
-        asc: is_nil(game.release_year),
-        asc: game.release_year,
+        asc: is_nil(game.release_date),
+        asc: game.release_date,
         asc: game.normalized_title,
         asc: game.id
       ]
@@ -248,8 +248,9 @@ defmodule Iri.Library.StatusManager do
     }
   end
 
-  defp normalize_sort("release_desc"), do: "release_year"
-  defp normalize_sort("release_asc"), do: "release_year"
+  defp normalize_sort("release_desc"), do: "release_date"
+  defp normalize_sort("release_asc"), do: "release_date"
+  defp normalize_sort("release_year"), do: "release_date"
   defp normalize_sort(value), do: allowed(value, @sorts, "title")
 
   defp normalize_direction(value, _sort) when value in ["asc", "desc"], do: value

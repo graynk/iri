@@ -135,6 +135,7 @@ defmodule Iri.Library.StatusManagerTest do
         title: title,
         normalized_title: normalized_title,
         slug: "status-game-#{unique}",
+        release_date: release_year && Date.new!(release_year, 1, 1),
         release_year: release_year
       })
       |> Repo.insert!()

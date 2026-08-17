@@ -362,7 +362,7 @@ defmodule IriWeb.StatusManagerLive do
                 direction={@filters["direction"]}
                 options={[
                   {"Title", "title"},
-                  {"Release year", "release_year"},
+                  {"Release date", "release_date"},
                   {"Playtime", "playtime"}
                 ]}
               />

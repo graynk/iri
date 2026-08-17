@@ -55,16 +55,16 @@ defmodule IriWeb.CollectionLive.Components do
             </span>
             <span
               role="columnheader"
-              aria-sort={aria_sort(@sort == "release_year", @sort_direction)}
+              aria-sort={aria_sort(@sort == "release_date", @sort_direction)}
             >
               <button
                 id={sort_id(@variant, :year)}
                 type="button"
                 phx-click="sort_collection"
-                phx-value-sort="release_year"
-                class={sort_header(@sort == "release_year")}
+                phx-value-sort="release_date"
+                class={sort_header(@sort == "release_date")}
               >
-                Year <.sort_icon active={@sort == "release_year"} direction={@sort_direction} />
+                Year <.sort_icon active={@sort == "release_date"} direction={@sort_direction} />
               </button>
             </span>
             <span

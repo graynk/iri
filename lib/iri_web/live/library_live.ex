@@ -207,7 +207,7 @@ defmodule IriWeb.LibraryLive do
                       {"Metadata rating", "rating"},
                       {"My rating", "my_rating"},
                       {"Playtime", "playtime"},
-                      {"Year of release", "release_year"}
+                      {"Release date", "release_date"}
                     ]}
                   />
                 </div>

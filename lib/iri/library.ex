@@ -694,9 +694,10 @@ defmodule Iri.Library do
 
   defp normalize_sort("rating_desc"), do: "rating"
   defp normalize_sort("my_rating_desc"), do: "my_rating"
+  defp normalize_sort("release_year"), do: "release_date"
 
   defp normalize_sort(value)
-       when value in ["title", "rating", "my_rating", "playtime", "release_year"],
+       when value in ["title", "rating", "my_rating", "playtime", "release_date"],
        do: value
 
   defp normalize_sort(_value), do: "title"
@@ -939,21 +940,21 @@ defmodule Iri.Library do
          ]
   end
 
-  defp apply_sort(query, "release_year", "desc") do
+  defp apply_sort(query, "release_date", "desc") do
     from [source: source, game: game] in query,
       order_by: [
-        asc: is_nil(game.release_year),
-        desc: game.release_year,
+        asc: is_nil(game.release_date),
+        desc: game.release_date,
         asc: fragment("COALESCE(?, ?)", game.normalized_title, source.normalized_source_title),
         asc: source.id
       ]
   end
 
-  defp apply_sort(query, "release_year", _asc) do
+  defp apply_sort(query, "release_date", _asc) do
     from [source: source, game: game] in query,
       order_by: [
-        asc: is_nil(game.release_year),
-        asc: game.release_year,
+        asc: is_nil(game.release_date),
+        asc: game.release_date,
         asc: fragment("COALESCE(?, ?)", game.normalized_title, source.normalized_source_title),
         asc: source.id
       ]
