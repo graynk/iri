@@ -530,22 +530,22 @@ defmodule IriWeb.StatusManagerLive do
           :if={@page_count > 1}
           id="status-pagination"
           aria-label="Status manager pages"
-          class="flex items-center justify-center gap-4"
+          class="grid grid-cols-[1fr_auto_1fr] items-center gap-4"
         >
           <.link
             :if={@page > 1}
             id="status-previous-page"
             patch={~p"/library/statuses?#{filter_query(@filters, @page - 1)}"}
-            class="inline-flex min-h-11 items-center gap-1 rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-slate-800"
+            class="col-start-1 inline-flex min-h-11 items-center gap-1 justify-self-end rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-slate-800"
           >
             <.icon name="hero-chevron-left" class="size-4" /> Previous
           </.link>
-          <span class="text-sm text-slate-400">Page {@page} of {@page_count}</span>
+          <span class="col-start-2 text-sm text-slate-400">Page {@page} of {@page_count}</span>
           <.link
             :if={@page < @page_count}
             id="status-next-page"
             patch={~p"/library/statuses?#{filter_query(@filters, @page + 1)}"}
-            class="inline-flex min-h-11 items-center gap-1 rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-slate-800"
+            class="col-start-3 inline-flex min-h-11 items-center gap-1 justify-self-start rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-slate-800"
           >
             Next <.icon name="hero-chevron-right" class="size-4" />
           </.link>

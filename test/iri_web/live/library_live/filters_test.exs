@@ -35,4 +35,30 @@ defmodule IriWeb.LibraryLive.FiltersTest do
     assert Filters.active?(filtered)
     assert Filters.active_count(filtered) == 1
   end
+
+  test "pagination keeps the same number of slots on every page" do
+    assert Filters.pagination_tokens(1, 1) == [1]
+    assert Filters.pagination_tokens(3, 7) == [1, 2, 3, 4, 5, 6, 7]
+
+    for page_count <- [8, 12, 43] do
+      for page <- 1..page_count do
+        tokens = Filters.pagination_tokens(page, page_count)
+
+        assert length(tokens) == 7,
+               "page #{page} of #{page_count} rendered #{length(tokens)} slots: #{inspect(tokens)}"
+
+        pages = Enum.filter(tokens, &is_integer/1)
+        assert pages == Enum.sort(pages)
+        assert pages == Enum.uniq(pages)
+        assert List.first(pages) == 1
+        assert List.last(pages) == page_count
+        assert page in pages
+      end
+    end
+
+    assert Filters.pagination_tokens(1, 43) == [1, 2, 3, 4, 5, :ellipsis, 43]
+    assert Filters.pagination_tokens(3, 43) == [1, 2, 3, 4, 5, :ellipsis, 43]
+    assert Filters.pagination_tokens(20, 43) == [1, :ellipsis, 19, 20, 21, :ellipsis, 43]
+    assert Filters.pagination_tokens(43, 43) == [1, :ellipsis, 39, 40, 41, 42, 43]
+  end
 end

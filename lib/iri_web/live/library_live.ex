@@ -432,21 +432,27 @@ defmodule IriWeb.LibraryLive do
           :if={@page_count > 1}
           id="library-pagination"
           aria-label="Library pages"
-          class="flex flex-wrap items-center justify-center gap-2 pt-2"
+          class="grid grid-cols-2 items-center gap-2 pt-2 sm:grid-cols-[1fr_auto_1fr]"
         >
           <.link
             :if={@page > 1}
             id="library-previous-page"
             patch={~p"/library?#{filter_query(@filters, @page - 1)}"}
             data-library-page-link
-            class="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-heading"
+            class="col-start-1 row-start-1 inline-flex min-h-11 items-center gap-1.5 justify-self-start rounded-xl border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-heading sm:justify-self-end"
           >
             <.icon name="hero-chevron-left" class="size-4" /> Previous
           </.link>
 
-          <div class="flex items-center gap-1">
+          <div class="col-span-2 col-start-1 row-start-2 flex items-center justify-center gap-1 sm:col-span-1 sm:col-start-2 sm:row-start-1">
             <%= for token <- pagination_tokens(@page, @page_count) do %>
-              <span :if={token == :ellipsis} class="px-1 text-sm text-slate-600" aria-hidden="true">…</span>
+              <span
+                :if={token == :ellipsis}
+                class="grid size-9 place-items-center text-sm text-slate-600 sm:size-10"
+                aria-hidden="true"
+              >
+                …
+              </span>
               <.link
                 :if={is_integer(token)}
                 id={"library-page-#{token}"}
@@ -455,7 +461,7 @@ defmodule IriWeb.LibraryLive do
                 aria-label={"Page #{token}"}
                 aria-current={if(token == @page, do: "page")}
                 class={[
-                  "grid size-10 place-items-center rounded-xl text-sm font-semibold transition",
+                  "grid size-9 place-items-center rounded-xl text-sm font-semibold transition sm:size-10",
                   token == @page && "bg-teal-300 text-on-accent",
                   token != @page && "text-slate-400 hover:bg-slate-800 hover:text-heading"
                 ]}
@@ -470,7 +476,7 @@ defmodule IriWeb.LibraryLive do
             id="library-next-page"
             patch={~p"/library?#{filter_query(@filters, @page + 1)}"}
             data-library-page-link
-            class="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-heading"
+            class="col-start-2 row-start-1 inline-flex min-h-11 items-center gap-1.5 justify-self-end rounded-xl border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-heading sm:col-start-3 sm:justify-self-start"
           >
             Next <.icon name="hero-chevron-right" class="size-4" />
           </.link>
