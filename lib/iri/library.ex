@@ -651,7 +651,7 @@ defmodule Iri.Library do
   defp normalize_providers(values) do
     values
     |> list_value()
-    |> Enum.filter(&(&1 in ["steam", "gog"]))
+    |> Enum.filter(&(&1 in ["steam", "gog", "epic", "psn", "xbox", "igdb"]))
     |> Enum.uniq()
     |> Enum.sort()
   end
