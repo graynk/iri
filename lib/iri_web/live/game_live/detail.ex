@@ -206,16 +206,45 @@ defmodule IriWeb.GameLive.Detail do
                 id="game-playtime"
                 class="flex flex-col gap-2 border-t border-slate-800 pt-3"
               >
-                <div
-                  :if={personal_playtime_label(@game, @current_scope.user)}
-                  id="my-playtime"
-                  class="flex items-baseline justify-between gap-3"
-                >
-                  <span class="text-xs text-slate-400">Playtime</span>
-                  <span class="text-sm font-medium text-slate-100">
-                    {personal_playtime_label(@game, @current_scope.user)}
-                  </span>
-                </div>
+                <%= if playtime_editable?(@game, @current_scope.user) do %>
+                  <.form
+                    for={@playtime_form}
+                    id="personal-playtime"
+                    phx-change="save_playtime"
+                    phx-submit="save_playtime"
+                    class="flex items-baseline justify-between gap-3"
+                  >
+                    <span class="text-xs text-slate-400">Playtime</span>
+                    <div class="flex items-baseline gap-2">
+                      <span id="playtime-feedback" aria-live="polite" class="text-xs text-teal-300">
+                        {@playtime_message}
+                      </span>
+                      <.input
+                        field={@playtime_form[:hours]}
+                        id="personal-playtime-input"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        inputmode="decimal"
+                        placeholder="0"
+                        aria-label="Hours played"
+                        class="w-20 rounded-lg border border-slate-700 bg-slate-950/60 px-2 py-1 text-right text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-teal-300 focus:ring-2 focus:ring-teal-300/20"
+                      />
+                      <span class="text-xs text-slate-400">hours</span>
+                    </div>
+                  </.form>
+                <% else %>
+                  <div
+                    :if={personal_playtime_label(@game, @current_scope.user)}
+                    id="my-playtime"
+                    class="flex items-baseline justify-between gap-3"
+                  >
+                    <span class="text-xs text-slate-400">Playtime</span>
+                    <span class="text-sm font-medium text-slate-100">
+                      {personal_playtime_label(@game, @current_scope.user)}
+                    </span>
+                  </div>
+                <% end %>
                 <div
                   :if={time_to_beat_label(@game)}
                   id="game-time-to-beat"

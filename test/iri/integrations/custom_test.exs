@@ -33,6 +33,20 @@ defmodule Iri.Integrations.CustomTest do
     assert Repo.get_by!(GameSource, provider: :igdb, external_id: "10").manual_lock
   end
 
+  test "records typed-in hours on a newly added custom game" do
+    scope = viewer_user_fixture() |> Scope.for_user()
+
+    assert {:ok, %{added: 1}} = Custom.add_id(scope, 10, playtime_minutes: 210)
+    assert Repo.one!(LibraryItem).playtime_minutes == 210
+  end
+
+  test "a batch add without hours leaves playtime at zero" do
+    scope = viewer_user_fixture() |> Scope.for_user()
+
+    assert {:ok, %{added: 2}} = Custom.add_ids(scope, [10, 20])
+    assert Enum.all?(Repo.all(LibraryItem), &(&1.playtime_minutes == 0))
+  end
+
   test "caches the IGDB cover while adding a manual game" do
     scope = viewer_user_fixture() |> Scope.for_user()
     test_pid = self()
@@ -110,11 +124,11 @@ defmodule Iri.Integrations.CustomTest do
     assert statuses[10] == %{owned: true, custom_owned: false}
   end
 
-  test "replaces one user's custom selection and carries personal organization forward" do
+  test "replaces one user's custom selection and carries playtime and organization forward" do
     user = viewer_user_fixture()
     scope = Scope.for_user(user)
 
-    assert {:ok, %{added: 1}} = Custom.add_ids(scope, [10])
+    assert {:ok, %{added: 1}} = Custom.add_id(scope, 10, playtime_minutes: 210)
     old_game = Repo.get_by!(Game, igdb_id: 10)
     assert {:ok, _state} = Personalization.set_completion_state(scope, old_game.id, "playing")
     assert {:ok, collection} = Collections.create_collection(scope, %{name: "Favorites"})
@@ -128,6 +142,7 @@ defmodule Iri.Integrations.CustomTest do
     assert target_game.igdb_id == 20
     refute Repo.get_by(GameSource, provider: :igdb, external_id: "10")
     assert Repo.get_by!(GameSource, provider: :igdb, external_id: "20").game_id == target_game.id
+    assert Repo.one!(LibraryItem).playtime_minutes == 210
 
     assert Repo.get_by!(UserGameState, user_id: user.id, game_id: target_game.id).state ==
              "playing"

@@ -26,8 +26,14 @@ defmodule Iri.Library.Playtime do
 
   import Ecto.Query
 
-  alias Iri.Accounts.User
+  alias Iri.Accounts.{Scope, User}
   alias Iri.Integrations.ProviderAccount
+  alias Iri.Library.{Access, LibraryItem}
+  alias Iri.Repo
+
+  # Stores that report hours of their own. Their sync always wins: a provider
+  # moved onto this list overwrites manual values on its next import.
+  @self_reported_providers [:steam, :gog, :xbox]
 
   @doc """
   Query filter (bound as `account`) selecting the accounts whose playtime counts
@@ -89,4 +95,64 @@ defmodule Iri.Library.Playtime do
       do: true
 
   def personal_account?(%ProviderAccount{}, %User{}), do: false
+
+  @doc "Whether a store brings its own playtime, making the field read-only."
+  def self_reported?(provider), do: provider in @self_reported_providers
+
+  @doc """
+  Whether the viewer may type their own hours onto this library item.
+
+  Pure and in-memory, so a LiveView can ask about an already-preloaded
+  `item.provider_account` without a second query.
+  """
+  def editable?(%ProviderAccount{} = account, %User{} = user) do
+    personal_account?(account, user) and not self_reported?(account.provider)
+  end
+
+  @doc """
+  Records the viewer's own playtime for an accessible game.
+
+  Writes every editable personal item for the game, so the value stays coherent
+  with the `max()` aggregation readers use when the same game is owned on two
+  such stores.
+  """
+  def set_minutes(%Scope{user: %User{} = user} = scope, game_id, minutes)
+      when is_integer(game_id) and game_id > 0 and is_integer(minutes) and minutes >= 0 do
+    if Access.game?(scope, game_id) do
+      case editable_item_ids(user, game_id) do
+        [] ->
+          {:error, :not_editable}
+
+        item_ids ->
+          now = DateTime.utc_now(:second)
+
+          Repo.update_all(
+            from(item in LibraryItem, where: item.id in ^item_ids),
+            set: [playtime_minutes: minutes, updated_at: now]
+          )
+
+          {:ok, minutes}
+      end
+    else
+      {:error, :not_found}
+    end
+  end
+
+  def set_minutes(_scope, _game_id, _minutes), do: {:error, :not_found}
+
+  defp editable_item_ids(user, game_id) do
+    personal_account_filter = personal_account_filter(user)
+
+    Repo.all(
+      from item in LibraryItem,
+        join: source in assoc(item, :game_source),
+        join: account in assoc(item, :provider_account),
+        as: :account,
+        where: ^personal_account_filter,
+        where:
+          source.game_id == ^game_id and not item.hidden and is_nil(item.removed_at) and
+            account.enabled and account.provider not in ^@self_reported_providers,
+        select: item.id
+    )
+  end
 end
