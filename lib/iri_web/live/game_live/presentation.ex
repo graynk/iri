@@ -283,12 +283,15 @@ defmodule IriWeb.GameLive.Presentation do
     |> Enum.max(fn -> 0 end)
   end
 
-  @doc "Whether the viewer owns this game on a store that does not report hours."
+  @doc "Whether the viewer can record personal hours for this game."
   def playtime_editable?(game, current_user) do
     game
     |> owned_sources()
     |> Enum.flat_map(& &1.library_items)
-    |> Enum.any?(&Playtime.editable?(&1.provider_account, current_user))
+    |> Enum.any?(fn item ->
+      Playtime.editable?(item.provider_account, current_user) or
+        item.provider_account.provider == :custom
+    end)
   end
 
   defp editable_playtime_minutes(game, current_user) do

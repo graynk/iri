@@ -104,6 +104,29 @@ defmodule Iri.Library.PlaytimeTest do
     assert Repo.get!(LibraryItem, epic_item.id).playtime_minutes == 600
   end
 
+  test "set_minutes creates personal custom ownership without changing shared custom playtime" do
+    owner = viewer_user_fixture()
+    viewer = viewer_user_fixture()
+    game = game_fixture("shared-custom")
+    owner_item = item_fixture(owner, game, :custom, "shared-custom")
+
+    assert {:ok, 240} = Playtime.set_minutes(Scope.for_user(viewer), game.id, 240)
+    assert Repo.get!(LibraryItem, owner_item.id).playtime_minutes == 0
+
+    viewer_item =
+      Repo.one!(
+        from item in LibraryItem,
+          join: account in assoc(item, :provider_account),
+          where:
+            item.game_source_id == ^owner_item.game_source_id and
+              account.provider == :custom and account.owner_user_id == ^viewer.id,
+          preload: [provider_account: account]
+      )
+
+    assert viewer_item.relationship == :manual
+    assert viewer_item.playtime_minutes == 240
+  end
+
   test "set_minutes refuses a game owned only on a store that reports its own hours" do
     user = viewer_user_fixture()
     scope = Scope.for_user(user)
@@ -112,6 +135,24 @@ defmodule Iri.Library.PlaytimeTest do
 
     assert {:error, :not_editable} = Playtime.set_minutes(scope, game.id, 120)
     assert Repo.get!(LibraryItem, item.id).playtime_minutes == 0
+  end
+
+  test "set_minutes does not write to another user's shared non-custom item" do
+    owner = viewer_user_fixture()
+    viewer = viewer_user_fixture()
+    game = game_fixture("shared-psn")
+    owner_item = item_fixture(owner, game, :psn, "shared-psn")
+
+    ProviderAccount
+    |> Repo.get!(owner_item.provider_account_id)
+    |> Ecto.Changeset.change(sharing_policy: :inherit)
+    |> Repo.update!()
+
+    assert {:error, :not_editable} =
+             Playtime.set_minutes(Scope.for_user(viewer), game.id, 120)
+
+    assert Repo.get!(LibraryItem, owner_item.id).playtime_minutes == 0
+    assert Repo.aggregate(LibraryItem, :count) == 1
   end
 
   test "set_minutes refuses a game the viewer cannot see" do
@@ -141,15 +182,17 @@ defmodule Iri.Library.PlaytimeTest do
         provider: provider,
         external_user_id: "#{external_id}-account",
         display_name: "#{provider} account",
-        sharing_policy: :selected_users
+        sharing_policy: if(provider == :custom, do: :inherit, else: :selected_users)
       })
       |> Ecto.Changeset.put_change(:owner_user_id, user.id)
       |> Repo.insert!()
 
+    source_provider = if provider == :custom, do: :igdb, else: provider
+
     source =
       %GameSource{}
       |> GameSource.changeset(%{
-        provider: provider,
+        provider: source_provider,
         external_id: external_id,
         source_title: game.title,
         normalized_source_title: game.normalized_title,

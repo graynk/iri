@@ -27,8 +27,8 @@ defmodule Iri.Library.Playtime do
   import Ecto.Query
 
   alias Iri.Accounts.{Scope, User}
-  alias Iri.Integrations.ProviderAccount
-  alias Iri.Library.{Access, LibraryItem}
+  alias Iri.Integrations.{Custom, ProviderAccount}
+  alias Iri.Library.{Access, GameSource, LibraryItem}
   alias Iri.Repo
 
   # Stores that report hours of their own. Their sync always wins: a provider
@@ -121,17 +121,22 @@ defmodule Iri.Library.Playtime do
     if Access.game?(scope, game_id) do
       case editable_item_ids(user, game_id) do
         [] ->
-          {:error, :not_editable}
+          case create_personal_custom_item(scope, user, game_id) do
+            {:ok, _item} ->
+              case editable_item_ids(user, game_id) do
+                [] -> {:error, :not_editable}
+                item_ids -> update_minutes(item_ids, minutes)
+              end
+
+            {:error, :not_custom} ->
+              {:error, :not_editable}
+
+            {:error, reason} ->
+              {:error, reason}
+          end
 
         item_ids ->
-          now = DateTime.utc_now(:second)
-
-          Repo.update_all(
-            from(item in LibraryItem, where: item.id in ^item_ids),
-            set: [playtime_minutes: minutes, updated_at: now]
-          )
-
-          {:ok, minutes}
+          update_minutes(item_ids, minutes)
       end
     else
       {:error, :not_found}
@@ -139,6 +144,58 @@ defmodule Iri.Library.Playtime do
   end
 
   def set_minutes(_scope, _game_id, _minutes), do: {:error, :not_found}
+
+  defp update_minutes(item_ids, minutes) do
+    now = DateTime.utc_now(:second)
+
+    Repo.update_all(
+      from(item in LibraryItem, where: item.id in ^item_ids),
+      set: [playtime_minutes: minutes, updated_at: now]
+    )
+
+    {:ok, minutes}
+  end
+
+  defp create_personal_custom_item(scope, user, game_id) do
+    accessible_account_ids = Access.account_ids(scope)
+
+    source_id =
+      Repo.one(
+        from source in GameSource,
+          join: item in assoc(source, :library_items),
+          join: account in assoc(item, :provider_account),
+          where:
+            source.game_id == ^game_id and source.provider == :igdb and
+              account.provider == :custom and account.enabled and not item.hidden and
+              is_nil(item.removed_at) and account.id in subquery(accessible_account_ids),
+          select: source.id,
+          limit: 1
+      )
+
+    if source_id do
+      Repo.transact(fn ->
+        with {:ok, account} <- Custom.ensure_account(user) do
+          item =
+            Repo.get_by(LibraryItem,
+              provider_account_id: account.id,
+              game_source_id: source_id
+            ) || %LibraryItem{}
+
+          item
+          |> LibraryItem.changeset(%{
+            provider_account_id: account.id,
+            game_source_id: source_id,
+            relationship: :manual,
+            hidden: false,
+            removed_at: nil
+          })
+          |> Repo.insert_or_update()
+        end
+      end)
+    else
+      {:error, :not_custom}
+    end
+  end
 
   defp editable_item_ids(user, game_id) do
     personal_account_filter = personal_account_filter(user)

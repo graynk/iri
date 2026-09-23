@@ -19,6 +19,7 @@ defmodule IriWeb.GameLivePlaytimeTest do
   use IriWeb.ConnCase
 
   import Iri.AccountsFixtures
+  import Ecto.Query
   import Phoenix.LiveViewTest
 
   alias Iri.Integrations.ProviderAccount
@@ -104,6 +105,39 @@ defmodule IriWeb.GameLivePlaytimeTest do
     assert has_element?(view, "#playtime-feedback", "Playtime saved.")
   end
 
+  test "a shared existing custom game gets separate editable playtime for the viewer", %{
+    conn: conn
+  } do
+    owner = viewer_user_fixture()
+    viewer = viewer_user_fixture()
+    account = account_fixture(owner, :custom, "owner-custom")
+    game = game_fixture(account, 0, :igdb)
+    owner_item = Repo.one!(LibraryItem)
+
+    {:ok, view, _html} = conn |> log_in_user(viewer) |> live(~p"/games/#{game.slug}")
+
+    assert has_element?(view, "#personal-playtime")
+
+    view
+    |> form("#personal-playtime", playtime: %{hours: "4"})
+    |> render_change()
+
+    assert Repo.get!(LibraryItem, owner_item.id).playtime_minutes == 0
+
+    assert Repo.exists?(
+             from item in LibraryItem,
+               join: personal_account in assoc(item, :provider_account),
+               where:
+                 item.game_source_id == ^owner_item.game_source_id and
+                   personal_account.provider == :custom and
+                   personal_account.owner_user_id == ^viewer.id and
+                   item.playtime_minutes == 240
+           )
+
+    assert has_element?(view, "#personal-playtime-input[value='4']")
+    assert has_element?(view, "#playtime-feedback", "Playtime saved.")
+  end
+
   test "a mixed-store game falls back to reported playtime until manual playtime is saved", %{
     conn: conn
   } do
@@ -139,7 +173,7 @@ defmodule IriWeb.GameLivePlaytimeTest do
     |> Repo.insert!()
   end
 
-  defp game_fixture(account, playtime_minutes) do
+  defp game_fixture(account, playtime_minutes, source_provider \\ nil) do
     game =
       %Game{}
       |> Game.changeset(%{
@@ -152,16 +186,18 @@ defmodule IriWeb.GameLivePlaytimeTest do
       })
       |> Repo.insert!()
 
-    item_fixture(account, game, playtime_minutes)
+    item_fixture(account, game, playtime_minutes, source_provider)
 
     game
   end
 
-  defp item_fixture(account, game, playtime_minutes) do
+  defp item_fixture(account, game, playtime_minutes, source_provider \\ nil) do
+    source_provider = source_provider || account.provider
+
     source =
       %GameSource{}
       |> GameSource.changeset(%{
-        provider: account.provider,
+        provider: source_provider,
         external_id: "playtime-live-game-#{System.unique_integer([:positive])}",
         source_title: game.title,
         normalized_source_title: game.normalized_title,

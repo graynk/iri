@@ -246,7 +246,7 @@ defmodule Iri.Integrations.Custom do
       if Access.game?(scope, game.id) do
         {:already_owned, game}
       else
-        with {:ok, account} <- custom_account(user) do
+        with {:ok, account} <- ensure_account(user) do
           Repo.transact(fn ->
             with {:ok, _item} <-
                    upsert_custom_ownership(account, game, payload, playtime_minutes) do
@@ -292,7 +292,7 @@ defmodule Iri.Integrations.Custom do
     if Access.game?(scope, target_game.id) do
       {:ok, :already_owned}
     else
-      with {:ok, account} <- custom_account(user) do
+      with {:ok, account} <- ensure_account(user) do
         upsert_custom_ownership(account, target_game, payload, playtime_minutes)
       end
     end
@@ -450,7 +450,8 @@ defmodule Iri.Integrations.Custom do
     end)
   end
 
-  defp custom_account(user) do
+  @doc "Returns a user's custom-library account, creating it when needed."
+  def ensure_account(%User{} = user) do
     external_id = "user:#{user.id}"
 
     account =
@@ -462,6 +463,7 @@ defmodule Iri.Integrations.Custom do
       provider: :custom,
       external_user_id: external_id,
       display_name: "Custom games",
+      enabled: true,
       sync_status: "ready"
     })
     |> Ecto.Changeset.put_change(:owner_user_id, user.id)
