@@ -269,15 +269,52 @@ defmodule IriWeb.GameLive.Presentation do
   # one of their eligible accounts, never a shared account's value or a sum
   # across storefronts.
   def personal_playtime_label(game, current_user) do
-    minutes =
-      game
-      |> owned_sources()
-      |> Enum.flat_map(& &1.library_items)
-      |> Enum.filter(&Playtime.personal_account?(&1.provider_account, current_user))
-      |> Enum.map(&(&1.playtime_minutes || 0))
-      |> Enum.max(fn -> 0 end)
+    minutes = personal_playtime_minutes(game, current_user)
 
     if minutes > 0, do: format_hour_duration(minutes / 60)
+  end
+
+  def personal_playtime_minutes(game, current_user) do
+    game
+    |> owned_sources()
+    |> Enum.flat_map(& &1.library_items)
+    |> Enum.filter(&Playtime.personal_account?(&1.provider_account, current_user))
+    |> Enum.map(&(&1.playtime_minutes || 0))
+    |> Enum.max(fn -> 0 end)
+  end
+
+  @doc "Whether the viewer owns this game on a store that does not report hours."
+  def playtime_editable?(game, current_user) do
+    game
+    |> owned_sources()
+    |> Enum.flat_map(& &1.library_items)
+    |> Enum.any?(&Playtime.editable?(&1.provider_account, current_user))
+  end
+
+  defp editable_playtime_minutes(game, current_user) do
+    game
+    |> owned_sources()
+    |> Enum.flat_map(& &1.library_items)
+    |> Enum.filter(&Playtime.editable?(&1.provider_account, current_user))
+    |> Enum.map(&(&1.playtime_minutes || 0))
+    |> Enum.max(fn -> 0 end)
+  end
+
+  def playtime_form(game, current_user) do
+    editable_minutes = editable_playtime_minutes(game, current_user)
+
+    minutes =
+      if editable_minutes > 0,
+        do: editable_minutes,
+        else: personal_playtime_minutes(game, current_user)
+
+    hours =
+      case minutes do
+        0 -> ""
+        value -> format_hours(value / 60)
+      end
+
+    to_form(%{"hours" => hours}, as: :playtime)
   end
 
   def time_to_beat_label(%{
@@ -293,7 +330,8 @@ defmodule IriWeb.GameLive.Presentation do
 
   def playtime_block?(game, current_user) do
     not is_nil(personal_playtime_label(game, current_user)) or
-      not is_nil(time_to_beat_label(game))
+      not is_nil(time_to_beat_label(game)) or
+      playtime_editable?(game, current_user)
   end
 
   def release_label(%{release_date: %Date{} = date}), do: Calendar.strftime(date, "%B %Y")

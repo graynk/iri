@@ -22,6 +22,7 @@ defmodule IriWeb.CustomGameLive do
 
   alias Iri.Integrations.Custom
   alias Iri.Integrations.Steam.ManualLibrary
+  alias Iri.Params
 
   @impl true
   def mount(params, _session, socket) do
@@ -54,11 +55,11 @@ defmodule IriWeb.CustomGameLive do
     end
   end
 
-  def handle_event("add", %{"igdb_id" => id}, socket) do
+  def handle_event("add", %{"igdb_id" => id} = params, socket) do
     if socket.assigns.replacement do
       replace_custom_game(socket, id)
     else
-      add_custom_game(socket, id)
+      add_custom_game(socket, id, Map.get(params, "hours"))
     end
   end
 
@@ -116,8 +117,19 @@ defmodule IriWeb.CustomGameLive do
     end
   end
 
-  defp add_custom_game(socket, id) do
-    case Custom.add_ids(socket.assigns.current_scope, [String.to_integer(id)]) do
+  defp add_custom_game(socket, id, hours) do
+    case Params.hours_to_minutes(hours) do
+      {:ok, minutes} ->
+        options = if minutes > 0, do: [playtime_minutes: minutes], else: []
+        persist_custom_game(socket, id, options)
+
+      :error ->
+        {:noreply, put_flash(socket, :error, "Enter hours between 0 and 100,000.")}
+    end
+  end
+
+  defp persist_custom_game(socket, id, options) do
+    case Custom.add_id(socket.assigns.current_scope, String.to_integer(id), options) do
       {:ok, %{added: 1}} ->
         {:noreply, refresh_result_ownership(socket)}
 
@@ -255,13 +267,31 @@ defmodule IriWeb.CustomGameLive do
                     <.icon name="hero-check" class="size-4 text-teal-300" /> In library
                   </span>
                 <% true -> %>
-                  <button
-                    type="button"
-                    phx-click="add"
-                    phx-value-igdb_id={game["id"]}
-                    phx-disable-with="Adding…"
-                    class="min-h-11 shrink-0 self-start rounded-xl border border-teal-400/40 px-5 py-2 text-sm font-semibold text-teal-200 transition hover:bg-teal-400/10 disabled:cursor-wait disabled:opacity-60 sm:self-center"
-                  >Add</button>
+                  <form
+                    id={"add-custom-game-#{game["id"]}"}
+                    phx-submit="add"
+                    class="flex shrink-0 items-end gap-2 self-start sm:self-center"
+                  >
+                    <input type="hidden" name="igdb_id" value={game["id"]} />
+                    <.input
+                      id={"custom-game-hours-#{game["id"]}"}
+                      name="hours"
+                      value=""
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="100000"
+                      inputmode="decimal"
+                      label="Hours played"
+                      placeholder="0"
+                      class="h-11 w-32 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-teal-300 focus:ring-2 focus:ring-teal-300/20"
+                    />
+                    <button
+                      type="submit"
+                      phx-disable-with="Adding…"
+                      class="min-h-11 shrink-0 rounded-xl border border-teal-400/40 px-5 py-2 text-sm font-semibold text-teal-200 transition hover:bg-teal-400/10 disabled:cursor-wait disabled:opacity-60"
+                    >Add</button>
+                  </form>
               <% end %>
             </article>
           </div>

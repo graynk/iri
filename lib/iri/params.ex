@@ -29,4 +29,40 @@ defmodule Iri.Params do
   end
 
   def positive_integer(_value), do: nil
+
+  @doc """
+  Parses decimal hours typed by a user into whole minutes.
+
+  A blank value clears the entry, so it parses as zero minutes.
+  """
+  @spec hours_to_minutes(term()) :: {:ok, non_neg_integer()} | :error
+  def hours_to_minutes(nil), do: {:ok, 0}
+
+  def hours_to_minutes(value) when is_float(value), do: minutes(value)
+  def hours_to_minutes(value) when is_integer(value), do: minutes(value)
+
+  def hours_to_minutes(value) when is_binary(value) do
+    case String.trim(value) do
+      "" ->
+        {:ok, 0}
+
+      trimmed ->
+        case Float.parse(trimmed) do
+          {hours, ""} -> minutes(hours)
+          _other -> integer_hours(trimmed)
+        end
+    end
+  end
+
+  def hours_to_minutes(_value), do: :error
+
+  defp integer_hours(value) do
+    case Integer.parse(value) do
+      {hours, ""} -> minutes(hours)
+      _other -> :error
+    end
+  end
+
+  defp minutes(hours) when hours >= 0 and hours <= 100_000, do: {:ok, round(hours * 60)}
+  defp minutes(_hours), do: :error
 end

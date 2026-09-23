@@ -39,7 +39,7 @@ defmodule IriWeb.ProviderImportLiveTest do
              "A searchable fixture game used to identify this result."
            )
 
-    view |> element("#igdb-search-results button", "Add") |> render_click()
+    view |> form("#add-custom-game-90001") |> render_submit()
     assert has_element?(view, "#igdb-result-90001 button", "Remove")
   end
 

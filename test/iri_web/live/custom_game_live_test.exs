@@ -23,7 +23,7 @@ defmodule IriWeb.CustomGameLiveTest do
 
   alias Iri.Accounts.Scope
   alias Iri.Integrations.Custom
-  alias Iri.Library.Game
+  alias Iri.Library.{Game, LibraryItem}
   alias Iri.Repo
 
   test "a user can replace a custom IGDB selection through the rich search UI", %{conn: conn} do
@@ -59,6 +59,45 @@ defmodule IriWeb.CustomGameLiveTest do
 
     target = Repo.get_by!(Game, igdb_id: 90_001)
     assert_redirect(view, ~p"/games/#{target.slug}")
+  end
+
+  test "a search result can be added with the hours the user already played", %{conn: conn} do
+    user = viewer_user_fixture()
+    {:ok, view, _html} = conn |> log_in_user(user) |> live(~p"/library/add")
+
+    view
+    |> form("#igdb-game-search", search: %{query: "The Legend of Zelda"})
+    |> render_submit()
+
+    assert has_element?(view, "#add-custom-game-90001")
+    assert has_element?(view, "label[for='custom-game-hours-90001']", "Hours played")
+
+    assert has_element?(
+             view,
+             "#custom-game-hours-90001[type='number'][inputmode='decimal'][min='0'][max='100000'][placeholder='0']"
+           )
+
+    view
+    |> form("#add-custom-game-90001", %{"igdb_id" => "90001", "hours" => "3.5"})
+    |> render_submit()
+
+    assert Repo.one!(LibraryItem).playtime_minutes == 210
+  end
+
+  test "invalid hours prevent a custom game from being added", %{conn: conn} do
+    user = viewer_user_fixture()
+    {:ok, view, _html} = conn |> log_in_user(user) |> live(~p"/library/add")
+
+    view
+    |> form("#igdb-game-search", search: %{query: "The Legend of Zelda"})
+    |> render_submit()
+
+    view
+    |> form("#add-custom-game-90001", %{"igdb_id" => "90001", "hours" => "100001"})
+    |> render_submit()
+
+    assert has_element?(view, "#flash-error", "Enter hours between 0 and 100,000.")
+    assert Repo.aggregate(LibraryItem, :count) == 0
   end
 
   test "the add-games page offers a manual Steam AppID fallback", %{conn: conn} do

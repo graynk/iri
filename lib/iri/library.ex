@@ -362,6 +362,9 @@ defmodule Iri.Library do
     to: Personalization,
     as: :set_completion_state
 
+  @doc "Records the current user's own playtime, in minutes, for an accessible game."
+  defdelegate set_playtime(scope, game_id, minutes), to: Playtime, as: :set_minutes
+
   @doc "Clears the current user's completion state for an accessible game."
   def clear_game_state(scope, game_id),
     do: Personalization.set_completion_state(scope, game_id, nil)

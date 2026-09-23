@@ -28,7 +28,7 @@ defmodule Iri.Integrations.LibraryReconciler do
 
   alias Iri.Accounts.{Scope, User}
   alias Iri.Integrations.ProviderAccount
-  alias Iri.Library.{GameSource, LibraryItem, Title}
+  alias Iri.Library.{GameSource, LibraryItem, Playtime, Title}
   alias Iri.Repo
   alias Iri.Security.Redactor
   alias Iri.Sync.{SyncError, SyncRun}
@@ -101,15 +101,7 @@ defmodule Iri.Integrations.LibraryReconciler do
 
     Repo.insert_all(LibraryItem, item_rows,
       conflict_target: [:provider_account_id, :game_source_id],
-      on_conflict:
-        {:replace,
-         [
-           :relationship,
-           :hidden,
-           :playtime_minutes,
-           :removed_at,
-           :updated_at
-         ]}
+      on_conflict: {:replace, replaceable_item_fields(account.provider)}
     )
 
     removed = if complete?, do: remove_absent(account, Map.values(sources), now), else: 0
@@ -302,6 +294,15 @@ defmodule Iri.Integrations.LibraryReconciler do
   defp strongest_relationship(:owned, _new), do: :owned
   defp strongest_relationship(_existing, :owned), do: :owned
   defp strongest_relationship(_existing, relationship), do: relationship
+
+  # A store that reports its own hours overwrites them on every import; for one
+  # that does not, a re-uploaded snapshot must leave the viewer's typed-in value
+  # alone.
+  defp replaceable_item_fields(provider) do
+    base = [:relationship, :hidden, :removed_at, :updated_at]
+
+    if Playtime.self_reported?(provider), do: [:playtime_minutes | base], else: base
+  end
 
   defp source_row(provider, entry, now) do
     snapshot = Map.get(entry, :metadata, %{})
