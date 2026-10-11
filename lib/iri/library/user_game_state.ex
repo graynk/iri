@@ -30,6 +30,7 @@ defmodule Iri.Library.UserGameState do
     field :state, :string
     field :notes, :string
     field :rating, :float
+    field :playtime_offset_minutes, :integer, default: 0
     belongs_to :user, User
     belongs_to :game, Game
     timestamps(type: :utc_datetime)
@@ -37,13 +38,22 @@ defmodule Iri.Library.UserGameState do
 
   def changeset(state, attrs) do
     state
-    |> cast(attrs, [:state, :notes, :rating])
+    |> cast(attrs, [:state, :notes, :rating, :playtime_offset_minutes])
     |> validate_inclusion(:state, ["backlog", "playing", "completed", "dropped"])
     |> validate_length(:notes, max: 10_000)
     |> validate_inclusion(:rating, @ratings)
     |> validate_number(:rating, greater_than_or_equal_to: 1, less_than_or_equal_to: 5)
+    # Base lower bound is 0; the DB check constraint is signed-wide
+    # (±6 000 000) for the open negative-offset decision.
+    |> validate_number(:playtime_offset_minutes,
+      greater_than_or_equal_to: 0,
+      less_than_or_equal_to: 6_000_000
+    )
     |> unique_constraint(:game_id, name: :user_game_states_user_id_game_id_index)
     |> check_constraint(:rating, name: :user_game_states_rating_check)
+    |> check_constraint(:playtime_offset_minutes,
+      name: :user_game_states_playtime_offset_minutes_check
+    )
   end
 
   def note_changeset(state, attrs) do

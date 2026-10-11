@@ -362,8 +362,9 @@ defmodule Iri.Library do
     to: Personalization,
     as: :set_completion_state
 
-  @doc "Records the current user's own playtime, in minutes, for an accessible game."
-  defdelegate set_playtime(scope, game_id, minutes), to: Playtime, as: :set_minutes
+  @doc "Records the current user's manual playtime offset, in minutes, for an accessible game."
+  def set_playtime_offset(scope, game_id, minutes),
+    do: Personalization.set_playtime_offset(scope, game_id, minutes)
 
   @doc "Clears the current user's completion state for an accessible game."
   def clear_game_state(scope, game_id),
@@ -832,7 +833,10 @@ defmodule Iri.Library do
   end
 
   # Playtime sorting uses the viewer's own accounts only, so a shared library's
-  # owner sees their own hours ranked, never another user's.
+  # owner sees their own hours ranked, never another user's. The subqueries
+  # stay item-driven and select raw sums (no offset, no clamp); the clamped
+  # total is computed in the ORDER BY fragment, which also reaches the
+  # viewer's offset through the base query's user_state join.
   defp with_personal_playtime(query, user) do
     personal_account_filter = Playtime.personal_account_filter(user)
 
@@ -846,7 +850,7 @@ defmodule Iri.Library do
         group_by: item.game_source_id,
         select: %{
           source_id: item.game_source_id,
-          minutes: max(item.playtime_minutes)
+          minutes: sum(item.playtime_minutes)
         }
 
     personal_game_playtime =
@@ -863,7 +867,7 @@ defmodule Iri.Library do
         group_by: playtime_source.game_id,
         select: %{
           game_id: playtime_source.game_id,
-          minutes: max(item.playtime_minutes)
+          minutes: sum(item.playtime_minutes)
         }
 
     from [source: source] in query,
@@ -915,15 +919,26 @@ defmodule Iri.Library do
       ]
   end
 
+  # The subqueries select the raw sums of the viewer's personal store hours;
+  # the clamped total (sum + manual offset, floored at 0) is computed here,
+  # where the base query's user_state join is in scope. A game with an offset
+  # but no personal items still ranks by its offset, matching the display.
   defp apply_sort(query, "playtime", "desc") do
     from [
            source: source,
            game: game,
            game_playtime: game_playtime,
-           source_playtime: source_playtime
+           source_playtime: source_playtime,
+           user_state: user_state
          ] in query,
          order_by: [
-           desc: fragment("COALESCE(?, ?, 0)", game_playtime.minutes, source_playtime.minutes),
+           desc:
+             fragment(
+               "COALESCE(MAX(0, COALESCE(?, ?, 0) + COALESCE(?, 0)), 0)",
+               game_playtime.minutes,
+               source_playtime.minutes,
+               user_state.playtime_offset_minutes
+             ),
            asc: fragment("COALESCE(?, ?)", game.normalized_title, source.normalized_source_title),
            asc: source.id
          ]
@@ -934,10 +949,17 @@ defmodule Iri.Library do
            source: source,
            game: game,
            game_playtime: game_playtime,
-           source_playtime: source_playtime
+           source_playtime: source_playtime,
+           user_state: user_state
          ] in query,
          order_by: [
-           asc: fragment("COALESCE(?, ?, 0)", game_playtime.minutes, source_playtime.minutes),
+           asc:
+             fragment(
+               "COALESCE(MAX(0, COALESCE(?, ?, 0) + COALESCE(?, 0)), 0)",
+               game_playtime.minutes,
+               source_playtime.minutes,
+               user_state.playtime_offset_minutes
+             ),
            asc: fragment("COALESCE(?, ?)", game.normalized_title, source.normalized_source_title),
            asc: source.id
          ]

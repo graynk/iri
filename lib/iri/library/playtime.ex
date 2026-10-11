@@ -17,19 +17,22 @@
 
 defmodule Iri.Library.Playtime do
   @moduledoc """
-  Identifies which provider account a game's playtime "belongs to" for a user.
+  Playtime attribution and the one clamped total computation.
 
   Playtime is always the *viewer's own* — a user sees the hours from their own
   Steam account (the one they play on), never another user's, even when the
   game itself lives in a library shared with them.
+
+  `total_minutes/2` is the single place that combines the viewer's store
+  hours with their manual offset, clamped at zero. Every read path in the
+  web layer must compute its total through it so a below-zero total can
+  never reach a label, a sort, or an export.
   """
 
   import Ecto.Query
 
-  alias Iri.Accounts.{Scope, User}
-  alias Iri.Integrations.{Custom, ProviderAccount}
-  alias Iri.Library.{Access, GameSource, LibraryItem}
-  alias Iri.Repo
+  alias Iri.Accounts.User
+  alias Iri.Integrations.ProviderAccount
 
   # Stores that report hours of their own. Their sync always wins: a provider
   # moved onto this list overwrites manual values on its next import.
@@ -100,116 +103,21 @@ defmodule Iri.Library.Playtime do
   def self_reported?(provider), do: provider in @self_reported_providers
 
   @doc """
-  Whether the viewer may type their own hours onto this library item.
+  The viewer's total playtime, in minutes, for a game.
 
-  Pure and in-memory, so a LiveView can ask about an already-preloaded
-  `item.provider_account` without a second query.
+  `items` are the viewer's own visible library items for the game (already
+  filtered through `personal_account?/2` and the usual hidden/removed/enabled
+  filters); `offset_minutes` is their manual offset (0 when unset). Store
+  hours sum across stores, the offset is added on top, and the result is
+  clamped at zero — a below-zero sum can never be returned.
   """
-  def editable?(%ProviderAccount{} = account, %User{} = user) do
-    personal_account?(account, user) and not self_reported?(account.provider)
-  end
+  @spec total_minutes([map()], integer()) :: non_neg_integer()
+  def total_minutes(items, offset_minutes) when is_list(items) and is_integer(offset_minutes) do
+    store_minutes =
+      items
+      |> Enum.map(&(&1.playtime_minutes || 0))
+      |> Enum.sum()
 
-  @doc """
-  Records the viewer's own playtime for an accessible game.
-
-  Writes every editable personal item for the game, so the value stays coherent
-  with the `max()` aggregation readers use when the same game is owned on two
-  such stores.
-  """
-  def set_minutes(%Scope{user: %User{} = user} = scope, game_id, minutes)
-      when is_integer(game_id) and game_id > 0 and is_integer(minutes) and minutes >= 0 do
-    if Access.game?(scope, game_id) do
-      case editable_item_ids(user, game_id) do
-        [] ->
-          case create_personal_custom_item(scope, user, game_id) do
-            {:ok, _item} ->
-              case editable_item_ids(user, game_id) do
-                [] -> {:error, :not_editable}
-                item_ids -> update_minutes(item_ids, minutes)
-              end
-
-            {:error, :not_custom} ->
-              {:error, :not_editable}
-
-            {:error, reason} ->
-              {:error, reason}
-          end
-
-        item_ids ->
-          update_minutes(item_ids, minutes)
-      end
-    else
-      {:error, :not_found}
-    end
-  end
-
-  def set_minutes(_scope, _game_id, _minutes), do: {:error, :not_found}
-
-  defp update_minutes(item_ids, minutes) do
-    now = DateTime.utc_now(:second)
-
-    Repo.update_all(
-      from(item in LibraryItem, where: item.id in ^item_ids),
-      set: [playtime_minutes: minutes, updated_at: now]
-    )
-
-    {:ok, minutes}
-  end
-
-  defp create_personal_custom_item(scope, user, game_id) do
-    accessible_account_ids = Access.account_ids(scope)
-
-    source_id =
-      Repo.one(
-        from source in GameSource,
-          join: item in assoc(source, :library_items),
-          join: account in assoc(item, :provider_account),
-          where:
-            source.game_id == ^game_id and source.provider == :igdb and
-              account.provider == :custom and account.enabled and not item.hidden and
-              is_nil(item.removed_at) and account.id in subquery(accessible_account_ids),
-          select: source.id,
-          limit: 1
-      )
-
-    if source_id do
-      Repo.transact(fn ->
-        with {:ok, account} <- Custom.ensure_account(user) do
-          item =
-            Repo.get_by(LibraryItem,
-              provider_account_id: account.id,
-              game_source_id: source_id
-            ) || %LibraryItem{}
-
-          item
-          |> LibraryItem.changeset(%{
-            provider_account_id: account.id,
-            game_source_id: source_id,
-            relationship: :manual,
-            hidden: false,
-            removed_at: nil
-          })
-          |> Repo.insert_or_update()
-        end
-      end)
-    else
-      {:error, :not_custom}
-    end
-  end
-
-  defp editable_item_ids(user, game_id) do
-    personal_account_filter = personal_account_filter(user)
-
-    Repo.all(
-      from item in LibraryItem,
-        join: source in assoc(item, :game_source),
-        join: account in assoc(item, :provider_account),
-        as: :account,
-        where: ^personal_account_filter,
-        where:
-          source.game_id == ^game_id and not item.hidden and is_nil(item.removed_at) and
-            account.enabled and account.provider not in ^@self_reported_providers,
-        select: item.id
-    )
+    max(0, store_minutes + offset_minutes)
   end
 end

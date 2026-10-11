@@ -467,7 +467,10 @@ defmodule Iri.Collections do
 
           entry
           |> Map.put(:game, game)
-          |> Map.put(:playtime_minutes, personal_playtime(game, user))
+          |> Map.put(
+            :playtime_minutes,
+            personal_playtime(game, user, Map.get(entry, :playtime_offset_minutes))
+          )
           |> Map.put(:media_mode, static_media_mode(game, user))
         end)
 
@@ -763,7 +766,8 @@ defmodule Iri.Collections do
         game.release_date,
         game.release_year,
         game.rating,
-        rating.rating
+        rating.rating,
+        rating.playtime_offset_minutes
       ],
       select: %{
         id: entry.id,
@@ -776,6 +780,7 @@ defmodule Iri.Collections do
         release_year: game.release_year,
         igdb_rating: game.rating,
         personal_rating: rating.rating,
+        playtime_offset_minutes: rating.playtime_offset_minutes,
         cover_id: min(cover.id)
       }
     )
@@ -837,7 +842,11 @@ defmodule Iri.Collections do
     )
   end
 
-  defp personal_playtime(game, user) do
+  # The collection owner's total playtime for a game: the sum of their store
+  # hours across stores plus their manual offset, clamped at zero. The offset
+  # comes from the owner's `user_game_states` row, selected by the entries
+  # query.
+  defp personal_playtime(game, user, offset_minutes) do
     game.sources
     |> Enum.flat_map(& &1.library_items)
     |> Enum.filter(fn item ->
@@ -845,8 +854,7 @@ defmodule Iri.Collections do
         item.provider_account.enabled and
         Playtime.personal_account?(item.provider_account, user)
     end)
-    |> Enum.map(&(&1.playtime_minutes || 0))
-    |> Enum.max(fn -> 0 end)
+    |> Playtime.total_minutes(offset_minutes || 0)
   end
 
   defp static_media_mode(game, user) do

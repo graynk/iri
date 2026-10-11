@@ -23,7 +23,7 @@ defmodule IriWeb.CustomGameLiveTest do
 
   alias Iri.Accounts.Scope
   alias Iri.Integrations.Custom
-  alias Iri.Library.{Game, LibraryItem}
+  alias Iri.Library.{Game, LibraryItem, UserGameState}
   alias Iri.Repo
 
   test "a user can replace a custom IGDB selection through the rich search UI", %{conn: conn} do
@@ -81,7 +81,12 @@ defmodule IriWeb.CustomGameLiveTest do
     |> form("#add-custom-game-90001", %{"igdb_id" => "90001", "hours" => "3.5"})
     |> render_submit()
 
-    assert Repo.one!(LibraryItem).playtime_minutes == 210
+    # Hours go to the viewer's personal offset; the item itself stays at 0.
+    game = Repo.get_by!(Game, igdb_id: 90_001)
+    assert Repo.one!(LibraryItem).playtime_minutes == 0
+
+    assert Repo.get_by!(UserGameState, user_id: user.id, game_id: game.id).playtime_offset_minutes ==
+             210
   end
 
   test "invalid hours prevent a custom game from being added", %{conn: conn} do

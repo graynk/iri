@@ -22,6 +22,7 @@ defmodule IriWeb.CustomGameLive do
 
   alias Iri.Integrations.Custom
   alias Iri.Integrations.Steam.ManualLibrary
+  alias Iri.Library
   alias Iri.Params
 
   @impl true
@@ -120,30 +121,38 @@ defmodule IriWeb.CustomGameLive do
   defp add_custom_game(socket, id, hours) do
     case Params.hours_to_minutes(hours) do
       {:ok, minutes} ->
-        options = if minutes > 0, do: [playtime_minutes: minutes], else: []
-        persist_custom_game(socket, id, options)
+        case Custom.add_id(socket.assigns.current_scope, String.to_integer(id)) do
+          {:ok, %{added: 1, added_games: [game]}} ->
+            socket =
+              if minutes > 0 do
+                case Library.set_playtime_offset(socket.assigns.current_scope, game.id, minutes) do
+                  {:ok, _} ->
+                    socket
+
+                  {:error, _reason} ->
+                    put_flash(socket, :error, "Could not save your playtime.")
+                end
+              else
+                socket
+              end
+
+            {:noreply, refresh_result_ownership(socket)}
+
+          {:ok, %{already_owned: 1}} ->
+            {:noreply,
+             socket
+             |> refresh_result_ownership()
+             |> put_flash(:info, "That game is already in your library.")}
+
+          {:ok, _counts} ->
+            {:noreply, put_flash(socket, :error, "IGDB did not return that game.")}
+
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, message(reason))}
+        end
 
       :error ->
         {:noreply, put_flash(socket, :error, "Enter hours between 0 and 100,000.")}
-    end
-  end
-
-  defp persist_custom_game(socket, id, options) do
-    case Custom.add_id(socket.assigns.current_scope, String.to_integer(id), options) do
-      {:ok, %{added: 1}} ->
-        {:noreply, refresh_result_ownership(socket)}
-
-      {:ok, %{already_owned: 1}} ->
-        {:noreply,
-         socket
-         |> refresh_result_ownership()
-         |> put_flash(:info, "That game is already in your library.")}
-
-      {:ok, _counts} ->
-        {:noreply, put_flash(socket, :error, "IGDB did not return that game.")}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, message(reason))}
     end
   end
 

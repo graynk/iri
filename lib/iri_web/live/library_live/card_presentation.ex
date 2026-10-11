@@ -32,19 +32,26 @@ defmodule IriWeb.LibraryLive.CardPresentation do
 
   # Playtime is the viewer's own only: filter the card's items down to the
   # accounts that count as theirs, so a shared game never shows another user's
-  # hours.
+  # hours. The total sums the hours across all of those stores and adds the
+  # viewer's manual offset on top, clamped at zero.
   def playtime_label(source, current_user) do
     minutes =
       source
       |> card_items()
       |> Enum.filter(&Playtime.personal_account?(&1.provider_account, current_user))
-      |> Enum.map(& &1.playtime_minutes)
-      |> Enum.max(fn -> 0 end)
+      |> Playtime.total_minutes(viewer_offset_minutes(source))
 
     if minutes > 0 do
       "#{Float.round(minutes / 60, 1)}h"
     end
   end
+
+  # The viewer's offset for the card's game; a bare (unmatched) source has no
+  # canonical game, hence no offset.
+  defp viewer_offset_minutes(%{game: %{user_states: [state | _]}}),
+    do: state.playtime_offset_minutes || 0
+
+  defp viewer_offset_minutes(_source), do: 0
 
   def display_title(%{game: %{title: title}}), do: title
   def display_title(source), do: source.source_title

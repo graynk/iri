@@ -47,7 +47,7 @@ defmodule IriWeb.GameLive do
          |> assign(:game_state, preferences)
          |> assign(:rating_form, rating_form(preferences))
          |> assign(:note_form, note_form(preferences))
-         |> assign(:playtime_form, playtime_form(game, user))
+         |> assign(:playtime_form, playtime_form(game))
          |> assign(:rating_message, nil)
          |> assign(:note_message, nil)
          |> assign(:playtime_message, nil)
@@ -357,7 +357,7 @@ defmodule IriWeb.GameLive do
 
     socket
     |> assign(:game, game)
-    |> assign(:playtime_form, playtime_form(game, user))
+    |> assign(:playtime_form, playtime_form(game))
     |> assign(:cover, cover_asset(game, user))
     |> assign(:screenshots, screenshots(game, user))
     |> assign(:sensitive_media_blurred?, Policy.blurred?(game, user))
@@ -394,20 +394,31 @@ defmodule IriWeb.GameLive do
   defp save_personal_playtime(socket, hours) do
     scope = socket.assigns.current_scope
 
-    with {:ok, minutes} <- Params.hours_to_minutes(hours),
-         {:ok, _minutes} <- Library.set_playtime(scope, socket.assigns.game.id, minutes),
-         {:ok, game} <- Library.get_game_by_slug(scope, socket.assigns.game.slug) do
-      {:noreply,
-       socket
-       |> assign(:game, game)
-       |> assign(:playtime_form, playtime_form(game, scope.user))
-       |> assign(:playtime_message, "Playtime saved.")}
-    else
-      _error ->
+    case Params.hours_to_minutes(hours) do
+      {:ok, minutes} ->
+        with {:ok, _minutes} <-
+               Library.set_playtime_offset(scope, socket.assigns.game.id, minutes),
+             {:ok, game} <- Library.get_game_by_slug(scope, socket.assigns.game.slug) do
+          {:noreply,
+           socket
+           |> assign(:game, game)
+           |> assign(:playtime_form, playtime_form(game))
+           |> assign(:playtime_message, "Playtime saved.")}
+        else
+          # A save or reload failure (e.g. the game stopped being
+          # accessible), not a bad value.
+          _error ->
+            {:noreply,
+             socket
+             |> assign(:playtime_message, nil)
+             |> put_flash(:error, "Could not save your playtime.")}
+        end
+
+      :error ->
         {:noreply,
          socket
          |> assign(:playtime_message, nil)
-         |> put_flash(:error, "Could not save your playtime.")}
+         |> put_flash(:error, "Enter hours between 0 and 100,000.")}
     end
   end
 

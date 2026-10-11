@@ -86,6 +86,71 @@ defmodule Iri.Library.PersonalizationTest do
     assert "should be at most 10000 character(s)" in errors_on(changeset).notes
   end
 
+  test "playtime offset coexists with other personal fields and replaces previous values" do
+    user = viewer_user_fixture()
+    game = accessible_game_fixture(user)
+    scope = Scope.for_user(user)
+
+    assert {:ok, preferences} = Personalization.set_playtime_offset(scope, game.id, 750)
+    assert preferences.playtime_offset_minutes == 750
+
+    # The runtime setter is absolute: a new value replaces the previous one.
+    assert {:ok, preferences} = Personalization.set_playtime_offset(scope, game.id, 300)
+    assert preferences.playtime_offset_minutes == 300
+
+    assert {:ok, preferences} = Personalization.set_rating(scope, game.id, 4)
+    assert preferences.playtime_offset_minutes == 300
+    assert preferences.rating == 4
+
+    # Clearing the offset keeps the other fields, and once the row is empty
+    # it is pruned.
+    assert {:ok, preferences} = Personalization.set_playtime_offset(scope, game.id, 0)
+    assert preferences.playtime_offset_minutes == 0
+    assert preferences.rating == 4
+
+    assert {:ok, _} = Personalization.set_rating(scope, game.id, nil)
+    refute Repo.get_by(UserGameState, user_id: user.id, game_id: game.id)
+  end
+
+  test "an offset-only row is kept by clear operations" do
+    user = viewer_user_fixture()
+    game = accessible_game_fixture(user)
+    scope = Scope.for_user(user)
+
+    assert {:ok, _} = Personalization.set_playtime_offset(scope, game.id, 120)
+    assert {:ok, _} = Personalization.set_completion_state(scope, game.id, nil)
+
+    assert %UserGameState{playtime_offset_minutes: 120} =
+             Repo.get_by(UserGameState, user_id: user.id, game_id: game.id)
+  end
+
+  test "playtime offset is bounded in the app layer" do
+    user = viewer_user_fixture()
+    game = accessible_game_fixture(user)
+    scope = Scope.for_user(user)
+
+    assert {:error, :invalid_playtime} =
+             Personalization.set_playtime_offset(scope, game.id, -1)
+
+    assert {:error, :invalid_playtime} =
+             Personalization.set_playtime_offset(scope, game.id, 6_000_001)
+
+    assert {:error, :invalid_playtime} =
+             Personalization.set_playtime_offset(scope, game.id, "10")
+
+    assert {:ok, preferences} = Personalization.set_playtime_offset(scope, game.id, 6_000_000)
+    assert preferences.playtime_offset_minutes == 6_000_000
+  end
+
+  test "playtime offset cannot be set without current game access" do
+    owner = viewer_user_fixture()
+    excluded_user = viewer_user_fixture()
+    game = accessible_game_fixture(owner)
+
+    assert {:error, :not_found} =
+             Personalization.set_playtime_offset(Scope.for_user(excluded_user), game.id, 120)
+  end
+
   test "preferences cannot be read or changed without current game access" do
     owner = viewer_user_fixture()
     excluded_user = viewer_user_fixture()

@@ -123,9 +123,14 @@ same visibility boundary as the route.
 - `Iri.Library.Access` is the central query-level access control helper. Use
   `Access.account_ids/1` or `Access.game_ids/1` for new visibility-sensitive
   queries instead of re-creating the sharing joins.
-- `Iri.Library.Personalization` owns completion state, ratings, and notes.
+- `Iri.Library.Personalization` owns completion state, ratings, notes, and the
+  per-user manual playtime offset (`user_game_states.playtime_offset_minutes`).
   `Iri.Library.Playtime` deliberately filters playtime to the viewer's own
-  account identities, never a family member's hours.
+  account identities, never a family member's hours, and its `total_minutes/2`
+  is the single clamped total every read path must use: the sum of the
+  viewer's own store hours across all stores, plus their manual offset,
+  floored at zero. Self-reporting stores (Steam/GOG/Xbox) still overwrite
+  their item hours on import; a sync never writes the offset.
 - `Iri.Media.Policy` resolves the user/server NSFW policy before a template or
   media controller exposes an asset.
 

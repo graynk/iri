@@ -128,6 +128,27 @@ defmodule Iri.Library.Personalization do
 
   def change_note(nil, attrs), do: UserGameState.note_changeset(%UserGameState{}, attrs)
 
+  @doc """
+  Sets the signed-in user's manual playtime offset, in minutes, for an
+  accessible game.
+
+  The value is absolute (user intent replaces any previous offset). `0`
+  clears the offset but never deletes the row — it may hold state, notes,
+  or a rating.
+  """
+  def set_playtime_offset(%Scope{user: user} = scope, game_id, minutes)
+      when not is_nil(user) and is_integer(minutes) do
+    if minutes in 0..6_000_000 do
+      update_field(scope, game_id, :playtime_offset_minutes, minutes)
+    else
+      {:error, :invalid_playtime}
+    end
+  end
+
+  def set_playtime_offset(%Scope{user: nil}, _game_id, _minutes), do: {:error, :unauthorized}
+  def set_playtime_offset(%Scope{}, _game_id, _minutes), do: {:error, :invalid_playtime}
+  def set_playtime_offset(_scope, _game_id, _minutes), do: {:error, :unauthorized}
+
   defp update_field(%Scope{user: user} = scope, game_id, field, value)
        when is_integer(game_id) and game_id > 0 do
     if Access.game?(scope, game_id) do
@@ -177,7 +198,8 @@ defmodule Iri.Library.Personalization do
     from(state in UserGameState,
       where:
         state.user_id == ^user_id and state.game_id in ^game_ids and is_nil(state.state) and
-          is_nil(state.rating) and fragment("trim(coalesce(?, '')) = ''", state.notes)
+          is_nil(state.rating) and fragment("trim(coalesce(?, '')) = ''", state.notes) and
+          state.playtime_offset_minutes in [0, nil]
     )
     |> Repo.delete_all()
   end
@@ -197,7 +219,7 @@ defmodule Iri.Library.Personalization do
 
   defp empty?(preferences) do
     is_nil(preferences.state) and is_nil(preferences.rating) and
-      blank?(preferences.notes)
+      blank?(preferences.notes) and preferences.playtime_offset_minutes in [nil, 0]
   end
 
   defp blank?(nil), do: true

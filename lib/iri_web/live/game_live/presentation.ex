@@ -265,54 +265,64 @@ defmodule IriWeb.GameLive.Presentation do
     |> Enum.uniq_by(& &1.external_id)
   end
 
-  # Match library sorting: a user's playtime is the highest value reported by
-  # one of their eligible accounts, never a shared account's value or a sum
-  # across storefronts.
+  # Match library sorting: the viewer's total is the sum of the hours on all
+  # of their eligible accounts plus their manual offset, clamped at zero —
+  # never another user's hours, never below zero.
   def personal_playtime_label(game, current_user) do
     minutes = personal_playtime_minutes(game, current_user)
 
     if minutes > 0, do: format_hour_duration(minutes / 60)
   end
 
+  @doc "The viewer's total playtime for this game (store hours + manual offset, clamped at zero)."
   def personal_playtime_minutes(game, current_user) do
+    Playtime.total_minutes(personal_items(game, current_user), viewer_offset_minutes(game))
+  end
+
+  @doc "The viewer's own store hours for this game, without the manual offset."
+  def store_hours_minutes(game, current_user) do
+    personal_items(game, current_user)
+    |> Enum.map(&(&1.playtime_minutes || 0))
+    |> Enum.sum()
+  end
+
+  # The helper line shown while the viewer has own store hours: where the
+  # total comes from (e.g. "77.5h total · 65h libraries · 12.5h extra").
+  def playtime_total_label(game, current_user) do
+    store_hours = store_hours_minutes(game, current_user)
+
+    if store_hours > 0 do
+      total = personal_playtime_minutes(game, current_user)
+      offset = viewer_offset_minutes(game)
+
+      "#{format_hours(total / 60)}h total · #{format_hours(store_hours / 60)}h libraries" <>
+        if offset > 0, do: " · #{format_hours(offset / 60)}h extra", else: ""
+    end
+  end
+
+  defp personal_items(game, current_user) do
     game
     |> owned_sources()
     |> Enum.flat_map(& &1.library_items)
     |> Enum.filter(&Playtime.personal_account?(&1.provider_account, current_user))
-    |> Enum.map(&(&1.playtime_minutes || 0))
-    |> Enum.max(fn -> 0 end)
   end
 
-  @doc "Whether the viewer can record personal hours for this game."
-  def playtime_editable?(game, current_user) do
-    game
-    |> owned_sources()
-    |> Enum.flat_map(& &1.library_items)
-    |> Enum.any?(fn item ->
-      Playtime.editable?(item.provider_account, current_user) or
-        item.provider_account.provider == :custom
-    end)
+  # The viewer's state row is preloaded on the game, scoped to the signed-in
+  # user.
+  defp viewer_offset_minutes(%{user_states: [state | _]}) do
+    state.playtime_offset_minutes || 0
   end
 
-  defp editable_playtime_minutes(game, current_user) do
-    game
-    |> owned_sources()
-    |> Enum.flat_map(& &1.library_items)
-    |> Enum.filter(&Playtime.editable?(&1.provider_account, current_user))
-    |> Enum.map(&(&1.playtime_minutes || 0))
-    |> Enum.max(fn -> 0 end)
-  end
+  defp viewer_offset_minutes(_game), do: 0
 
-  def playtime_form(game, current_user) do
-    editable_minutes = editable_playtime_minutes(game, current_user)
-
-    minutes =
-      if editable_minutes > 0,
-        do: editable_minutes,
-        else: personal_playtime_minutes(game, current_user)
+  # The Playtime field always edits the viewer's manual offset — like rating
+  # and notes it is available on every accessible game, not gated on item
+  # ownership.
+  def playtime_form(game) do
+    offset = viewer_offset_minutes(game)
 
     hours =
-      case minutes do
+      case offset do
         0 -> ""
         value -> format_hours(value / 60)
       end
@@ -330,12 +340,6 @@ defmodule IriWeb.GameLive.Presentation do
   end
 
   def time_to_beat_label(_game), do: nil
-
-  def playtime_block?(game, current_user) do
-    not is_nil(personal_playtime_label(game, current_user)) or
-      not is_nil(time_to_beat_label(game)) or
-      playtime_editable?(game, current_user)
-  end
 
   def release_label(%{release_date: %Date{} = date}), do: Calendar.strftime(date, "%B %Y")
   def release_label(_game), do: "Release date unavailable"

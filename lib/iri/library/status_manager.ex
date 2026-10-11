@@ -180,7 +180,7 @@ defmodule Iri.Library.StatusManager do
           account.enabled and not item.hidden and is_nil(item.removed_at) and
             not is_nil(source.game_id),
         group_by: source.game_id,
-        select: %{game_id: source.game_id, minutes: max(item.playtime_minutes)}
+        select: %{game_id: source.game_id, minutes: sum(item.playtime_minutes)}
 
     from [game: game] in query,
       left_join: playtime in subquery(personal_playtime),
@@ -208,19 +208,33 @@ defmodule Iri.Library.StatusManager do
       ]
   end
 
+  # The subquery selects the raw sum of the viewer's personal store hours;
+  # the clamped total (sum + manual offset, floored at 0) is computed in the
+  # ORDER BY fragment below, which can also reference the viewer's state row
+  # from the base query's user_state join.
   defp apply_sort(query, "playtime", "desc") do
-    from [game: game, playtime: playtime] in query,
+    from [game: game, playtime: playtime, user_state: user_state] in query,
       order_by: [
-        desc: fragment("COALESCE(?, 0)", playtime.minutes),
+        desc:
+          fragment(
+            "COALESCE(MAX(0, COALESCE(?, 0) + COALESCE(?, 0)), 0)",
+            playtime.minutes,
+            user_state.playtime_offset_minutes
+          ),
         asc: game.normalized_title,
         asc: game.id
       ]
   end
 
   defp apply_sort(query, "playtime", _asc) do
-    from [game: game, playtime: playtime] in query,
+    from [game: game, playtime: playtime, user_state: user_state] in query,
       order_by: [
-        asc: fragment("COALESCE(?, 0)", playtime.minutes),
+        asc:
+          fragment(
+            "COALESCE(MAX(0, COALESCE(?, 0) + COALESCE(?, 0)), 0)",
+            playtime.minutes,
+            user_state.playtime_offset_minutes
+          ),
         asc: game.normalized_title,
         asc: game.id
       ]
