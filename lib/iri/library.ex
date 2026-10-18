@@ -31,6 +31,13 @@ defmodule Iri.Library do
   @page_size 48
   @tag_kinds ["keyword", "player_perspective"]
 
+  @doc "Returns the default direction for a library sort, including legacy sort names."
+  def default_direction(sort)
+      when sort in ["date_added", "release_date", "release_year", "rating_desc", "my_rating_desc"],
+      do: "desc"
+
+  def default_direction(_sort), do: "asc"
+
   @doc """
   Returns one page of canonical library entries visible to `scope`.
 
@@ -81,9 +88,16 @@ defmodule Iri.Library do
     page_number = min(requested_page, page_count)
 
     page_query =
-      if filters["sort"] == "playtime",
-        do: with_personal_playtime(query, user),
-        else: query
+      case filters["sort"] do
+        "playtime" ->
+          with_personal_playtime(query, user)
+
+        "date_added" ->
+          with_date_added(query, filters, accessible_account_ids)
+
+        _other ->
+          query
+      end
 
     page =
       page_query
@@ -437,17 +451,19 @@ defmodule Iri.Library do
     )
   end
 
-  defp owned_source_ids(filters, accessible_account_ids) do
+  defp owned_library_items(filters, accessible_account_ids) do
     query =
       from item in LibraryItem,
+        as: :owned_item,
         join: account in assoc(item, :provider_account),
+        as: :owned_account,
         join: source in assoc(item, :game_source),
+        as: :owned_source,
         where:
           not item.hidden and is_nil(item.removed_at) and account.enabled and
             account.id in subquery(accessible_account_ids) and
             (is_nil(source.match_method) or source.match_method != "rejected") and
-            (is_nil(source.catalog_kind) or source.catalog_kind in ["game", "unknown"]),
-        select: source.id
+            (is_nil(source.catalog_kind) or source.catalog_kind in ["game", "unknown"])
 
     providers = Enum.map(filters["providers"], &String.to_existing_atom/1)
 
@@ -455,7 +471,7 @@ defmodule Iri.Library do
       if providers == [] do
         query
       else
-        from [item, account, source] in query, where: source.provider in ^providers
+        from [owned_source: source] in query, where: source.provider in ^providers
       end
 
     account_ids = Enum.map(filters["account_ids"], &String.to_integer/1)
@@ -463,8 +479,14 @@ defmodule Iri.Library do
     if account_ids == [] do
       query
     else
-      from [item, account, source] in query, where: account.id in ^account_ids
+      from [owned_account: account] in query, where: account.id in ^account_ids
     end
+  end
+
+  defp owned_source_ids(filters, accessible_account_ids) do
+    filters
+    |> owned_library_items(accessible_account_ids)
+    |> select([owned_source: source], source.id)
   end
 
   defp apply_taxonomy_filters(query, filters) do
@@ -701,14 +723,14 @@ defmodule Iri.Library do
   defp normalize_sort("release_year"), do: "release_date"
 
   defp normalize_sort(value)
-       when value in ["title", "rating", "my_rating", "playtime", "release_date"],
+       when value in ["title", "rating", "my_rating", "playtime", "release_date", "date_added"],
        do: value
 
   defp normalize_sort(_value), do: "title"
 
   defp normalize_direction(value, _sort) when value in ["asc", "desc"], do: value
-  defp normalize_direction(nil, sort) when sort in ["rating_desc", "my_rating_desc"], do: "desc"
-  defp normalize_direction(_value, _sort), do: "asc"
+
+  defp normalize_direction(_value, sort), do: default_direction(sort)
 
   defp list_value(values) when is_list(values), do: values
   defp list_value(value) when is_binary(value), do: [value]
@@ -877,6 +899,39 @@ defmodule Iri.Library do
       left_join: source_playtime in subquery(personal_source_playtime),
       as: :source_playtime,
       on: source_playtime.source_id == source.id
+  end
+
+  # A canonical card may represent several provider sources and accounts. Use
+  # the first active ownership record in the selected account/provider set so
+  # acquiring the same game from another store does not make it look new again.
+  defp with_date_added(query, filters, accessible_account_ids) do
+    owned_items = owned_library_items(filters, accessible_account_ids)
+
+    # Positive game IDs and negated source IDs keep matched games and unmatched
+    # sources in separate identity spaces while aggregating ownership only once.
+    dates =
+      from [owned_item: item, owned_source: source] in owned_items,
+        group_by: fragment("COALESCE(?, -?)", source.game_id, source.id),
+        select: %{
+          entry_id: fragment("COALESCE(?, -?)", source.game_id, source.id),
+          added_at: min(item.inserted_at)
+        }
+
+    from [source: source] in query,
+      left_join: date_added in subquery(dates),
+      as: :date_added,
+      on: date_added.entry_id == fragment("COALESCE(?, -?)", source.game_id, source.id)
+  end
+
+  defp apply_sort(query, "date_added", direction) do
+    order = if direction == "asc", do: :asc, else: :desc
+
+    from [source: source, game: game, date_added: date_added] in query,
+      order_by: [
+        {^order, date_added.added_at},
+        {:asc, fragment("COALESCE(?, ?)", game.normalized_title, source.normalized_source_title)},
+        {:asc, source.id}
+      ]
   end
 
   defp apply_sort(query, "rating", "desc") do

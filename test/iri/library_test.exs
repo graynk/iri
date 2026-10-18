@@ -23,12 +23,13 @@ defmodule Iri.LibraryTest do
   alias Iri.Accounts.Scope
   alias Iri.Integrations.ProviderAccount
   alias Iri.Integrations
+  alias Iri.Integrations.Custom
   alias Iri.Integrations.GOG.ClientStub, as: GOGClientStub
   alias Iri.Integrations.GOG.Reconciler, as: GOGReconciler
   alias Iri.Integrations.IGDB.{ClientStub, Enricher}
   alias Iri.Integrations.Steam.Reconciler
   alias Iri.Library
-  alias Iri.Library.{Game, GameSource, Personalization, TaxonomyTerm}
+  alias Iri.Library.{Game, GameSource, LibraryItem, Personalization, TaxonomyTerm}
 
   test "lists locally owned source games once across multiple Steam owners" do
     first = steam_account_fixture("76561198000000001", "First owner")
@@ -98,6 +99,127 @@ defmodule Iri.LibraryTest do
 
     assert page.total_count == 1
     assert [%{source_title: "Portal 2"}] = page.entries
+  end
+
+  test "sorts by the date a source first entered an accessible library" do
+    account = steam_account_fixture("76561198000000001", "Owner")
+    assert {:ok, _counts} = Reconciler.reconcile(account, games_fixture())
+
+    scope = viewer_user_fixture() |> Scope.for_user()
+    assert {:ok, %{added: 1}} = Custom.add_id(scope, 99)
+
+    counter_strike = Repo.get_by!(GameSource, provider: :steam, external_id: "10")
+    portal = Repo.get_by!(GameSource, provider: :steam, external_id: "620")
+    manual = Repo.get_by!(GameSource, provider: :igdb, external_id: "99")
+
+    Repo.update_all(
+      from(item in LibraryItem,
+        where:
+          item.provider_account_id == ^account.id and
+            item.game_source_id == ^counter_strike.id
+      ),
+      set: [inserted_at: ~U[2026-01-01 12:00:00Z]]
+    )
+
+    Repo.update_all(
+      from(item in LibraryItem,
+        where: item.provider_account_id == ^account.id and item.game_source_id == ^portal.id
+      ),
+      set: [inserted_at: ~U[2026-02-01 12:00:00Z]]
+    )
+
+    Repo.update_all(
+      from(item in LibraryItem, where: item.game_source_id == ^manual.id),
+      set: [inserted_at: ~U[2026-03-01 12:00:00Z]]
+    )
+
+    assert {:ok, newest_first} =
+             Library.list_source_games(scope, %{"sort" => "date_added"})
+
+    assert newest_first.filters["direction"] == "desc"
+    assert Enum.map(newest_first.entries, & &1.external_id) == ["99", "620", "10"]
+
+    assert {:ok, oldest_first} =
+             Library.list_source_games(scope, %{
+               "sort" => "date_added",
+               "direction" => "asc"
+             })
+
+    assert Enum.map(oldest_first.entries, & &1.external_id) == ["10", "620", "99"]
+  end
+
+  test "date added groups canonical sources separately from unmatched sources with the same ID" do
+    account = steam_account_fixture("76561198000000001", "Owner")
+
+    assert {:ok, _counts} =
+             Reconciler.reconcile(account, [
+               %{"appid" => 10, "name" => "Canonical source"},
+               %{"appid" => 620, "name" => "Unmatched source"},
+               %{"appid" => 30, "name" => "Alternate canonical source"}
+             ])
+
+    representative = Repo.get_by!(GameSource, provider: :steam, external_id: "10")
+    unmatched = Repo.get_by!(GameSource, provider: :steam, external_id: "620")
+    alternate = Repo.get_by!(GameSource, provider: :steam, external_id: "30")
+
+    game =
+      Repo.insert!(%Game{
+        id: unmatched.id,
+        title: "Canonical game",
+        normalized_title: "canonical game",
+        slug: "canonical-game"
+      })
+
+    Repo.update_all(
+      from(source in GameSource, where: source.id in ^[representative.id, alternate.id]),
+      set: [game_id: game.id]
+    )
+
+    for {source, date} <- [
+          {representative, ~U[2026-03-01 12:00:00Z]},
+          {unmatched, ~U[2026-02-01 12:00:00Z]},
+          {alternate, ~U[2026-01-01 12:00:00Z]}
+        ] do
+      Repo.update_all(
+        from(item in LibraryItem, where: item.game_source_id == ^source.id),
+        set: [inserted_at: date]
+      )
+    end
+
+    scope = viewer_user_fixture() |> Scope.for_user()
+
+    for {direction, expected} <- [
+          {"desc", [unmatched.id, representative.id]},
+          {"asc", [representative.id, unmatched.id]}
+        ] do
+      assert {:ok, page} =
+               Library.list_source_games(scope, %{
+                 "sort" => "date_added",
+                 "direction" => direction
+               })
+
+      assert Enum.map(page.entries, & &1.id) == expected
+    end
+
+    Repo.update_all(
+      from(item in LibraryItem, where: item.game_source_id == ^alternate.id),
+      set: [hidden: true]
+    )
+
+    assert {:ok, page} = Library.list_source_games(scope, %{"sort" => "date_added"})
+    assert Enum.map(page.entries, & &1.id) == [representative.id, unmatched.id]
+  end
+
+  test "sort directions survive filter URL serialization and normalization" do
+    scope = viewer_user_fixture() |> Scope.for_user()
+
+    for sort <- ["title", "rating", "my_rating", "playtime", "release_date", "date_added"],
+        direction <- ["asc", "desc"] do
+      params = IriWeb.LibraryLive.Filters.query(%{"sort" => sort, "direction" => direction})
+      assert {:ok, page} = Library.list_source_games(scope, params)
+      assert page.filters["sort"] == sort
+      assert page.filters["direction"] == direction
+    end
   end
 
   test "searches canonical descriptions and keeps the local index current" do
@@ -590,6 +712,10 @@ defmodule Iri.LibraryTest do
 
     assert descending.filters["sort"] == "release_date"
     assert Enum.map(descending.entries, & &1.external_id) == ["620", "10", "999"]
+
+    assert {:ok, default} = Library.list_source_games(scope, %{"sort" => "release_date"})
+    assert default.filters["direction"] == "desc"
+    assert Enum.map(default.entries, & &1.id) == Enum.map(descending.entries, & &1.id)
 
     assert {:ok, ascending} =
              Library.list_source_games(scope, %{

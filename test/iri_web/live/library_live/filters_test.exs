@@ -36,6 +36,14 @@ defmodule IriWeb.LibraryLive.FiltersTest do
     assert Filters.active_count(filtered) == 1
   end
 
+  test "selecting recently added or release date starts with the newest games" do
+    for sort <- ["date_added", "release_date"] do
+      filters = Filters.merge_event(Filters.defaults(), %{"sort" => sort}, ["filters", "sort"])
+      assert filters["sort"] == sort
+      assert filters["direction"] == "desc"
+    end
+  end
+
   test "pagination keeps the same number of slots on every page" do
     assert Filters.pagination_tokens(1, 1) == [1]
     assert Filters.pagination_tokens(3, 7) == [1, 2, 3, 4, 5, 6, 7]
@@ -60,5 +68,45 @@ defmodule IriWeb.LibraryLive.FiltersTest do
     assert Filters.pagination_tokens(3, 43) == [1, 2, 3, 4, 5, :ellipsis, 43]
     assert Filters.pagination_tokens(20, 43) == [1, :ellipsis, 19, 20, 21, :ellipsis, 43]
     assert Filters.pagination_tokens(43, 43) == [1, :ellipsis, 39, 40, 41, 42, 43]
+  end
+
+  test "URLs omit only the selected sort's default direction" do
+    for sort <- ["title", "rating", "my_rating", "playtime", "release_date", "date_added"],
+        direction <- ["asc", "desc"] do
+      query = Filters.query(%{"sort" => sort, "direction" => direction})
+      default = Iri.Library.default_direction(sort)
+      assert Map.get(query, "direction", default) == direction
+      assert Map.has_key?(query, "direction") == (direction != default)
+    end
+  end
+
+  test "changing between sorts with the same default preserves direction" do
+    for sorts <- [["title", "rating", "my_rating", "playtime"], ["date_added", "release_date"]],
+        current_sort <- sorts,
+        next_sort <- sorts,
+        direction <- ["asc", "desc"] do
+      current = Map.merge(Filters.defaults(), %{"sort" => current_sort, "direction" => direction})
+      merged = Filters.merge_event(current, %{"sort" => next_sort}, ["filters", "sort"])
+      assert merged["direction"] == direction
+    end
+  end
+
+  test "changing between different defaults resets direction while other events preserve it" do
+    current = Map.merge(Filters.defaults(), %{"sort" => "date_added", "direction" => "desc"})
+
+    for sort <- ["title", "rating", "my_rating", "playtime"] do
+      merged = Filters.merge_event(current, %{"sort" => sort}, ["filters", "sort"])
+      assert merged["direction"] == "asc"
+    end
+
+    ascending = Map.put(current, "direction", "asc")
+
+    assert Filters.merge_event(ascending, %{"q" => "portal"}, ["filters", "q"])["direction"] ==
+             "asc"
+
+    assert Filters.merge_event(ascending, %{"sort" => "date_added"}, ["filters", "sort"])[
+             "direction"
+           ] ==
+             "asc"
   end
 end

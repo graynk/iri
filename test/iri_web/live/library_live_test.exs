@@ -20,6 +20,7 @@ defmodule IriWeb.LibraryLiveTest do
 
   import Iri.AccountsFixtures
   import Phoenix.LiveViewTest
+  require Ecto.Query
 
   alias Iri.Integrations.ProviderAccount
   alias Iri.Integrations.GOG.ClientStub, as: GOGClientStub
@@ -136,6 +137,138 @@ defmodule IriWeb.LibraryLiveTest do
     assert has_element?(view, "#clear-library-filters[aria-hidden='true']")
     refute has_element?(view, "#toggle-library-filters[class~='bg-teal-400/10']")
     refute has_element?(view, "#toggle-library-filters > span.rounded-full")
+  end
+
+  test "switching from descending title to rating preserves direction", %{conn: conn} do
+    viewer = viewer_user_fixture()
+    {:ok, view, _html} = conn |> log_in_user(viewer) |> live(~p"/library?direction=desc")
+
+    render_change(view, "filter", %{
+      "_target" => ["filters", "sort"],
+      "filters" => %{"sort" => "rating"}
+    })
+
+    assert_patch(view, ~p"/library?#{%{sort: "rating", direction: "desc"}}")
+
+    assert has_element?(
+             view,
+             "button#library-sort-direction[data-sort-direction='desc'][aria-label*='descending']",
+             "Descending"
+           )
+  end
+
+  test "release date defaults to descending and can toggle to ascending", %{conn: conn} do
+    viewer = viewer_user_fixture()
+    {:ok, view, _html} = conn |> log_in_user(viewer) |> live(~p"/library")
+
+    render_change(view, "filter", %{
+      "_target" => ["filters", "sort"],
+      "filters" => %{"sort" => "release_date"}
+    })
+
+    assert_patch(view, ~p"/library?#{%{sort: "release_date"}}")
+
+    assert has_element?(
+             view,
+             "button#library-sort-direction[data-sort-direction='desc'][aria-label*='descending']",
+             "Descending"
+           )
+
+    view |> element("#library-sort-direction") |> render_click()
+    ascending_url = ~p"/library?#{%{sort: "release_date", direction: "asc"}}"
+    assert_patch(view, ascending_url)
+
+    {:ok, reloaded, _html} = conn |> log_in_user(viewer) |> live(ascending_url)
+
+    assert has_element?(
+             reloaded,
+             "button#library-sort-direction[data-sort-direction='asc'][aria-label*='ascending']",
+             "Ascending"
+           )
+  end
+
+  test "date-added sort is accessible and starts newest first", %{conn: conn} do
+    account = steam_account_fixture()
+
+    assert {:ok, _counts} =
+             Reconciler.reconcile(account, [
+               %{"appid" => 10, "name" => "Older game"},
+               %{"appid" => 620, "name" => "Newer game"}
+             ])
+
+    older = Repo.get_by!(GameSource, provider: :steam, external_id: "10")
+    newer = Repo.get_by!(GameSource, provider: :steam, external_id: "620")
+
+    for {source, date} <- [{older, ~U[2026-01-01 12:00:00Z]}, {newer, ~U[2026-02-01 12:00:00Z]}] do
+      Repo.update_all(
+        Ecto.Query.where(Iri.Library.LibraryItem, game_source_id: ^source.id),
+        set: [inserted_at: date]
+      )
+    end
+
+    viewer = viewer_user_fixture()
+    {:ok, view, _html} = conn |> log_in_user(viewer) |> live(~p"/library")
+
+    assert has_element?(view, "#library-sort option[value='date_added']", "Recently added")
+
+    assert has_element?(
+             view,
+             "#library-sort option[value='date_added'] + option[value='release_date']",
+             "Release date"
+           )
+
+    render_change(view, "filter", %{
+      "_target" => ["filters", "sort"],
+      "filters" => %{"sort" => "date_added"}
+    })
+
+    assert_patch(view, ~p"/library?#{%{sort: "date_added"}}")
+    assert has_element?(view, "#library-games > article:first-of-type", "Newer game")
+
+    assert has_element?(
+             view,
+             "#library-sort-direction[data-sort-direction='desc'][aria-label*='descending']",
+             "Descending"
+           )
+
+    view |> element("#library-sort-direction") |> render_click()
+    ascending_url = ~p"/library?#{%{sort: "date_added", direction: "asc"}}"
+    assert_patch(view, ascending_url)
+    assert has_element?(view, "#library-games > article:first-of-type", "Older game")
+
+    assert has_element?(
+             view,
+             "button#library-sort-direction[data-sort-direction='asc'][aria-label*='ascending']",
+             "Ascending"
+           )
+
+    {:ok, reloaded, _html} = conn |> log_in_user(viewer) |> live(ascending_url)
+    assert has_element?(reloaded, "#library-sort-direction[data-sort-direction='asc']")
+    assert has_element?(reloaded, "#library-games > article:first-of-type", "Older game")
+
+    view |> element("#library-sort-direction") |> render_click()
+    assert_patch(view, ~p"/library?#{%{sort: "date_added"}}")
+
+    for sort <- ["title", "playtime"] do
+      render_change(view, "filter", %{
+        "_target" => ["filters", "sort"],
+        "filters" => %{"sort" => sort}
+      })
+
+      assert_patch(
+        view,
+        if(sort == "title", do: ~p"/library", else: ~p"/library?#{%{sort: sort}}")
+      )
+
+      assert has_element?(view, "#library-sort-direction[data-sort-direction='asc']")
+
+      render_change(view, "filter", %{
+        "_target" => ["filters", "sort"],
+        "filters" => %{"sort" => "date_added"}
+      })
+
+      assert_patch(view, ~p"/library?#{%{sort: "date_added"}}")
+    end
   end
 
   test "cards show the viewer's own hours, never another user's on a shared game", %{conn: conn} do
@@ -530,6 +663,7 @@ defmodule IriWeb.LibraryLiveTest do
     assert has_element?(library, "#card-footer-#{source.id}")
     assert has_element?(library, "[aria-label='Metadata rating: 89%']")
     assert has_element?(library, "#library-sort option[value='rating']", "Metadata rating")
+    assert has_element?(library, "#library-sort option[value='date_added']", "Recently added")
     assert has_element?(library, "#library-sort option[value='my_rating']", "My rating")
     assert has_element?(library, "#library-sort option[value='playtime']", "Playtime")
     assert has_element?(library, "#library-sort option[value='release_date']", "Release date")

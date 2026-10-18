@@ -204,10 +204,11 @@ defmodule IriWeb.LibraryLive do
                     direction={@filters["direction"]}
                     options={[
                       {"Title", "title"},
+                      {"Recently added", "date_added"},
+                      {"Release date", "release_date"},
                       {"Metadata rating", "rating"},
                       {"My rating", "my_rating"},
-                      {"Playtime", "playtime"},
-                      {"Release date", "release_date"}
+                      {"Playtime", "playtime"}
                     ]}
                   />
                 </div>
