@@ -116,7 +116,7 @@ defmodule Iri.Library.StatusManager do
         join: account in assoc(item, :provider_account),
         as: :account,
         where: ^personal_account_filter,
-        where: account.enabled and not item.hidden and is_nil(item.removed_at)
+        where: is_nil(item.removed_at)
 
     source_query =
       from source in GameSource,
@@ -177,7 +177,7 @@ defmodule Iri.Library.StatusManager do
         as: :account,
         where: ^personal_account_filter,
         where:
-          account.enabled and not item.hidden and is_nil(item.removed_at) and
+          is_nil(item.removed_at) and
             not is_nil(source.game_id),
         group_by: source.game_id,
         select: %{game_id: source.game_id, minutes: sum(item.playtime_minutes)}

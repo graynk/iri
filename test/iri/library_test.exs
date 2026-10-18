@@ -203,7 +203,7 @@ defmodule Iri.LibraryTest do
 
     Repo.update_all(
       from(item in LibraryItem, where: item.game_source_id == ^alternate.id),
-      set: [hidden: true]
+      set: [removed_at: ~U[2026-04-01 12:00:00Z]]
     )
 
     assert {:ok, page} = Library.list_source_games(scope, %{"sort" => "date_added"})
@@ -301,6 +301,78 @@ defmodule Iri.LibraryTest do
 
     assert {:ok, options} = Library.list_filter_options(scope)
     assert Enum.map(options.accounts, & &1.id) |> Enum.sort() == Enum.sort([steam.id, gog.id])
+  end
+
+  test "account and taxonomy filters share library source eligibility" do
+    scope = viewer_user_fixture() |> Scope.for_user()
+
+    game =
+      Repo.insert!(%Game{
+        title: "Tagged game",
+        normalized_title: "tagged game",
+        slug: "tagged-game"
+      })
+
+    terms =
+      for kind <- ["genre", "theme", "game_mode"] do
+        term =
+          %TaxonomyTerm{}
+          |> TaxonomyTerm.changeset(%{
+            source: "igdb",
+            external_id: "eligibility-#{kind}",
+            slug: "test-#{kind}",
+            kind: kind,
+            name: "Test #{kind}"
+          })
+          |> Repo.insert!()
+
+        Repo.insert_all("game_terms", [%{game_id: game.id, taxonomy_term_id: term.id}])
+        term
+      end
+
+    excluded = [
+      {"rejected", "game"},
+      {"ai_rejected", "rejected"},
+      {"ai_rejected", "game"},
+      {"ai_rejected", nil},
+      {nil, "rejected"},
+      {nil, "tool"},
+      {nil, "dlc"}
+    ]
+
+    for {method, kind} <- excluded do
+      account = steam_account_fixture("filter-#{method}-#{kind}", "Excluded owner")
+
+      assert {:ok, _counts} =
+               Reconciler.reconcile(account, [%{"appid" => 620, "name" => "Portal 2"}])
+
+      Repo.get_by!(GameSource, provider: :steam, external_id: "620")
+      |> Ecto.Changeset.change(game_id: game.id, match_method: method, catalog_kind: kind)
+      |> Repo.update!()
+
+      assert {:ok, %{accounts: [], genres: [], themes: [], game_modes: []}} =
+               Library.list_filter_options(scope)
+
+      assert {:ok, %{total_count: 0}} = Library.list_source_games(scope)
+    end
+
+    Repo.get_by!(GameSource, provider: :steam, external_id: "620")
+    |> Ecto.Changeset.change(match_method: nil, catalog_kind: "unknown")
+    |> Repo.update!()
+
+    for kind <- [nil, "unknown", "game"] do
+      Repo.get_by!(GameSource, provider: :steam, external_id: "620")
+      |> Ecto.Changeset.change(catalog_kind: kind)
+      |> Repo.update!()
+
+      assert {:ok, options} = Library.list_filter_options(scope)
+      assert length(options.accounts) == length(excluded)
+
+      assert Enum.sort(Enum.map(options.genres ++ options.themes ++ options.game_modes, & &1.id)) ==
+               Enum.sort(Enum.map(terms, & &1.id))
+
+      assert {:ok, %{total_count: 1}} = Library.list_source_games(scope)
+    end
   end
 
   test "restricts selected libraries to the owner and explicit shares" do

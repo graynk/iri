@@ -22,7 +22,7 @@ defmodule Iri.Matches.Decisions do
   import Ecto.Query, warn: false
 
   alias Iri.AI.MatchReview
-  alias Iri.Library.{GameSource, LibraryItem, MatchCandidate}
+  alias Iri.Library.{GameSource, MatchCandidate}
   alias Iri.Matches.MatchDecision
   alias Iri.Repo
 
@@ -32,7 +32,6 @@ defmodule Iri.Matches.Decisions do
         source = Repo.get!(GameSource, source.id)
 
         with {:ok, source} <- update_source(source, attrs),
-             :ok <- maybe_restore_historical_items(source, attrs),
              {_, _} <-
                Repo.delete_all(
                  from candidate in MatchCandidate,
@@ -160,21 +159,6 @@ defmodule Iri.Matches.Decisions do
   end
 
   defp mark_review_applied(_attrs), do: :ok
-
-  defp maybe_restore_historical_items(source, %{action: "reopen"}) do
-    now = DateTime.utc_now(:second)
-
-    Repo.update_all(
-      from(item in LibraryItem,
-        where: item.game_source_id == ^source.id and item.hidden and not is_nil(item.removed_at)
-      ),
-      set: [hidden: false, removed_at: nil, updated_at: now]
-    )
-
-    :ok
-  end
-
-  defp maybe_restore_historical_items(_source, _attrs), do: :ok
 
   defp reopened_catalog_kind(%GameSource{catalog_kind: "rejected"}), do: "unknown"
   defp reopened_catalog_kind(%GameSource{catalog_kind: kind}), do: kind

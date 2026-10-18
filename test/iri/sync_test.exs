@@ -223,7 +223,7 @@ defmodule Iri.SyncTest do
     refute queued_enrichment.compatibility_requested
   end
 
-  test "account sync entry points preserve mismatch and disabled-account errors" do
+  test "account sync entry points preserve provider mismatch errors" do
     scope = admin_user_fixture() |> Scope.for_user()
 
     mismatch_accounts = %{
@@ -234,17 +234,6 @@ defmodule Iri.SyncTest do
 
     Enum.each([:steam, :gog, :xbox], fn provider ->
       account = Map.fetch!(mismatch_accounts, provider)
-
-      assert {:error, mismatch_error(provider)} ==
-               start_account_sync(provider, scope, account.id, enqueue_enrichment: false)
-    end)
-
-    Enum.each([:steam, :gog, :xbox], fn provider ->
-      account = create_account(scope, provider, "disabled-#{provider}")
-
-      account
-      |> ProviderAccount.changeset(%{enabled: false})
-      |> Repo.update!()
 
       assert {:error, mismatch_error(provider)} ==
                start_account_sync(provider, scope, account.id, enqueue_enrichment: false)

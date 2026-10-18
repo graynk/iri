@@ -49,6 +49,12 @@ defmodule Iri.Repo.Migrations.AddPlaytimeOffsetToUserGameStatesTest do
   end
 
   test "moves typed hours into per-user offsets, dedupes with MAX, and adds to pre-existing" do
+    # The suite runs on the current schema, where a later migration has removed
+    # these columns. Recreate their legacy shape inside this sandboxed test so
+    # the historical data statements run against the schema they migrate.
+    Repo.query!("ALTER TABLE provider_accounts ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT 1")
+    Repo.query!("ALTER TABLE library_items ADD COLUMN hidden BOOLEAN NOT NULL DEFAULT 0")
+
     user = viewer_user_fixture()
     stranger = viewer_user_fixture()
     game = game_fixture()

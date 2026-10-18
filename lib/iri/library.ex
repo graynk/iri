@@ -109,7 +109,7 @@ defmodule Iri.Library do
     items_query =
       from item in LibraryItem,
         where:
-          not item.hidden and is_nil(item.removed_at) and
+          is_nil(item.removed_at) and
             item.provider_account_id in subquery(accessible_account_ids),
         preload: [:provider_account]
 
@@ -173,31 +173,20 @@ defmodule Iri.Library do
   @doc "Returns the accessible accounts and taxonomy terms used by the library filter panel."
   def list_filter_options(%Scope{user: user} = scope) when not is_nil(user) do
     accessible_account_ids = Access.account_ids(scope)
+    owned_items = owned_library_items(normalize_filter_params(%{}), accessible_account_ids)
 
     accounts =
       Repo.all(
-        from account in ProviderAccount,
-          join: item in LibraryItem,
-          on: item.provider_account_id == account.id,
-          join: source in GameSource,
-          on: source.id == item.game_source_id,
-          where:
-            account.id in subquery(accessible_account_ids) and not item.hidden and
-              is_nil(item.removed_at) and
-              (is_nil(source.match_method) or source.match_method != "rejected"),
+        from [owned_account: account] in owned_items,
+          select: account,
           distinct: true
       )
       |> Repo.preload(:owner_user)
       |> Enum.sort_by(&account_filter_sort_key(&1, user))
 
     owned_game_ids =
-      from source in GameSource,
-        join: item in assoc(source, :library_items),
-        join: account in assoc(item, :provider_account),
-        where:
-          not item.hidden and is_nil(item.removed_at) and account.enabled and
-            account.id in subquery(accessible_account_ids) and
-            not is_nil(source.game_id),
+      from [owned_source: source] in owned_items,
+        where: not is_nil(source.game_id),
         select: source.game_id,
         distinct: true
 
@@ -340,8 +329,8 @@ defmodule Iri.Library do
         join: item in assoc(source, :library_items),
         join: account in assoc(item, :provider_account),
         where:
-          game.slug == ^slug and not item.hidden and is_nil(item.removed_at) and
-            account.enabled and account.id in subquery(accessible_account_ids),
+          game.slug == ^slug and is_nil(item.removed_at) and
+            account.id in subquery(accessible_account_ids),
         distinct: true
 
     case Repo.one(query) do
@@ -352,7 +341,7 @@ defmodule Iri.Library do
         items_query =
           from item in LibraryItem,
             where:
-              not item.hidden and is_nil(item.removed_at) and
+              is_nil(item.removed_at) and
                 item.provider_account_id in subquery(accessible_account_ids),
             preload: [:provider_account]
 
@@ -460,10 +449,10 @@ defmodule Iri.Library do
         join: source in assoc(item, :game_source),
         as: :owned_source,
         where:
-          not item.hidden and is_nil(item.removed_at) and account.enabled and
-            account.id in subquery(accessible_account_ids) and
-            (is_nil(source.match_method) or source.match_method != "rejected") and
+          is_nil(item.removed_at) and account.id in subquery(accessible_account_ids) and
             (is_nil(source.catalog_kind) or source.catalog_kind in ["game", "unknown"])
+
+    query = GameSource.excluding_rejected(query, :owned_source)
 
     providers = Enum.map(filters["providers"], &String.to_existing_atom/1)
 
@@ -868,7 +857,7 @@ defmodule Iri.Library do
         as: :account,
         on: account.id == item.provider_account_id,
         where: ^personal_account_filter,
-        where: account.enabled and not item.hidden and is_nil(item.removed_at),
+        where: is_nil(item.removed_at),
         group_by: item.game_source_id,
         select: %{
           source_id: item.game_source_id,
@@ -884,7 +873,7 @@ defmodule Iri.Library do
         on: account.id == item.provider_account_id,
         where: ^personal_account_filter,
         where:
-          account.enabled and not item.hidden and is_nil(item.removed_at) and
+          is_nil(item.removed_at) and
             not is_nil(playtime_source.game_id),
         group_by: playtime_source.game_id,
         select: %{

@@ -111,8 +111,6 @@ defmodule Iri.MatchesTest do
 
     item = Repo.get_by!(LibraryItem, provider_account_id: account.id, game_source_id: source.id)
     refute item.removed_at
-    refute item.hidden
-    assert is_nil(item.removed_at)
     assert {:ok, 0} = Matches.count_queue(scope)
     assert Repo.aggregate(MatchDecision, :count) == 1
 

@@ -169,10 +169,9 @@ defmodule Iri.Integrations.IGDB.Enricher do
     query =
       from source in GameSource,
         join: item in assoc(source, :library_items),
-        join: account in assoc(item, :provider_account),
         where:
           source.provider in [:steam, :gog, :epic, :psn, :xbox] and not source.manual_lock and
-            not item.hidden and is_nil(item.removed_at) and account.enabled and
+            is_nil(item.removed_at) and
             (is_nil(source.catalog_kind) or source.catalog_kind in ["game", "unknown"]),
         distinct: true,
         order_by: [asc: source.id],
@@ -180,7 +179,7 @@ defmodule Iri.Integrations.IGDB.Enricher do
 
     query =
       if is_integer(provider_account_id) do
-        from [source, item, account] in query, where: account.id == ^provider_account_id
+        from [_source, item] in query, where: item.provider_account_id == ^provider_account_id
       else
         query
       end
@@ -189,7 +188,7 @@ defmodule Iri.Integrations.IGDB.Enricher do
       if force? do
         query
       else
-        from [source, item, account] in query, where: is_nil(source.game_id)
+        from source in query, where: is_nil(source.game_id)
       end
 
     Repo.all(query)

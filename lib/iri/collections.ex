@@ -850,8 +850,7 @@ defmodule Iri.Collections do
     game.sources
     |> Enum.flat_map(& &1.library_items)
     |> Enum.filter(fn item ->
-      not item.hidden and is_nil(item.removed_at) and
-        item.provider_account.enabled and
+      is_nil(item.removed_at) and
         Playtime.personal_account?(item.provider_account, user)
     end)
     |> Playtime.total_minutes(offset_minutes || 0)

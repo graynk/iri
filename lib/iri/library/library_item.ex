@@ -29,7 +29,6 @@ defmodule Iri.Library.LibraryItem do
       values: [:owned, :subscription, :played, :manual],
       default: :owned
 
-    field :hidden, :boolean, default: false
     field :manually_added, :boolean, default: false
     field :playtime_minutes, :integer, default: 0
     field :removed_at, :utc_datetime
@@ -45,7 +44,6 @@ defmodule Iri.Library.LibraryItem do
       :provider_account_id,
       :game_source_id,
       :relationship,
-      :hidden,
       :manually_added,
       :playtime_minutes,
       :removed_at

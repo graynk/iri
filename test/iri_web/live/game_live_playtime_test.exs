@@ -130,7 +130,10 @@ defmodule IriWeb.GameLivePlaytimeTest do
 
     # Dropping access after the page loaded makes the save itself fail, not
     # the parsing of the typed hours.
-    account |> Ecto.Changeset.change(enabled: false) |> Repo.update!()
+    LibraryItem
+    |> Repo.get_by!(provider_account_id: account.id)
+    |> Ecto.Changeset.change(removed_at: DateTime.utc_now(:second))
+    |> Repo.update!()
 
     view
     |> form("#personal-playtime", playtime: %{hours: "5"})

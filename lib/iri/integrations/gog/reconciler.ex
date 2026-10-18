@@ -75,7 +75,6 @@ defmodule Iri.Integrations.GOG.Reconciler do
         {:replace,
          [
            :relationship,
-           :hidden,
            :playtime_minutes,
            :removed_at,
            :updated_at
@@ -185,7 +184,6 @@ defmodule Iri.Integrations.GOG.Reconciler do
       provider_account_id: account.id,
       game_source_id: Map.fetch!(sources, game.external_id),
       relationship: :owned,
-      hidden: false,
       playtime_minutes: game.playtime_minutes,
       removed_at: nil,
       inserted_at: now,

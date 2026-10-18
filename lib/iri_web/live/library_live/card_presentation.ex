@@ -247,6 +247,6 @@ defmodule IriWeb.LibraryLive.CardPresentation do
   defp term_priority(_kind), do: 2
 
   defp visible_item?(item) do
-    is_nil(item.removed_at) and item.provider_account.enabled
+    is_nil(item.removed_at)
   end
 end

@@ -194,7 +194,7 @@ defmodule IriWeb.GameLive.Presentation do
       Enum.filter(
         game.sources,
         &Enum.any?(&1.library_items, fn item ->
-          is_nil(item.removed_at) and item.provider_account.enabled
+          is_nil(item.removed_at)
         end)
       )
 

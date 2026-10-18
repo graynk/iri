@@ -91,7 +91,6 @@ defmodule Iri.Integrations.LibraryReconciler do
               relationships[Map.fetch!(sources, entry.external_id)],
               Map.get(entry, :relationship, :owned)
             ),
-          hidden: false,
           playtime_minutes: Map.get(entry, :playtime_minutes) || 0,
           removed_at: nil,
           inserted_at: now,
@@ -261,8 +260,7 @@ defmodule Iri.Integrations.LibraryReconciler do
     |> ProviderAccount.changeset(%{
       provider: provider,
       external_user_id: external_id,
-      display_name: Map.get(attrs, :display_name, external_id),
-      enabled: true
+      display_name: Map.get(attrs, :display_name, external_id)
     })
     |> Ecto.Changeset.put_change(:owner_user_id, user.id)
     |> Ecto.Changeset.put_change(:sync_status, "completed")
@@ -299,7 +297,7 @@ defmodule Iri.Integrations.LibraryReconciler do
   # that does not, a re-uploaded snapshot must leave the viewer's typed-in value
   # alone.
   defp replaceable_item_fields(provider) do
-    base = [:relationship, :hidden, :removed_at, :updated_at]
+    base = [:relationship, :removed_at, :updated_at]
 
     if Playtime.self_reported?(provider), do: [:playtime_minutes | base], else: base
   end

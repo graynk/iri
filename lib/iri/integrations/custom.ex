@@ -114,8 +114,7 @@ defmodule Iri.Integrations.Custom do
           join: item in assoc(source, :library_items),
           join: account in assoc(item, :provider_account),
           where:
-            game.igdb_id in ^ids and not item.hidden and
-              is_nil(item.removed_at) and account.enabled and
+            game.igdb_id in ^ids and is_nil(item.removed_at) and
               account.id in subquery(accessible_account_ids),
           select: {game.igdb_id, account.provider, account.owner_user_id}
       )
@@ -190,8 +189,7 @@ defmodule Iri.Integrations.Custom do
             join: account in assoc(item, :provider_account),
             where:
               game.id == ^game_id and source.provider == :igdb and account.provider == :custom and
-                account.owner_user_id == ^user_id and not item.hidden and
-                is_nil(item.removed_at),
+                account.owner_user_id == ^user_id and is_nil(item.removed_at),
             limit: 1
 
         case Repo.one(query) do
@@ -318,7 +316,6 @@ defmodule Iri.Integrations.Custom do
         provider_account_id: account.id,
         game_source_id: source.id,
         relationship: :manual,
-        hidden: false,
         removed_at: nil
       }
 
@@ -336,7 +333,7 @@ defmodule Iri.Integrations.Custom do
         where:
           source.game_id == ^game_id and source.provider == :igdb and
             account.provider == :custom and account.owner_user_id == ^user_id and
-            not item.hidden and is_nil(item.removed_at),
+            is_nil(item.removed_at),
         limit: 1
     )
   end
@@ -492,7 +489,6 @@ defmodule Iri.Integrations.Custom do
       provider: :custom,
       external_user_id: external_id,
       display_name: "Custom games",
-      enabled: true,
       sync_status: "ready"
     })
     |> Ecto.Changeset.put_change(:owner_user_id, user.id)

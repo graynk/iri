@@ -106,8 +106,8 @@ defmodule Iri.Library.Playtime do
   The viewer's total playtime, in minutes, for a game.
 
   `items` are the viewer's own visible library items for the game (already
-  filtered through `personal_account?/2` and the usual hidden/removed/enabled
-  filters); `offset_minutes` is their manual offset (0 when unset). Store
+  filtered through `personal_account?/2` and the usual removed-item filter);
+  `offset_minutes` is their manual offset (0 when unset). Store
   hours sum across stores, the offset is added on top, and the result is
   clamped at zero — a below-zero sum can never be returned.
   """

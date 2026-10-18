@@ -167,14 +167,14 @@ defmodule Iri.Integrations.Steam.Compatibility do
 
   defp active_sources do
     Repo.all(
-      from source in GameSource,
+      from(source in GameSource,
+        as: :source,
         join: item in assoc(source, :library_items),
-        join: account in assoc(item, :provider_account),
-        where:
-          source.provider == :steam and not item.hidden and
-            is_nil(item.removed_at) and account.enabled,
+        where: source.provider == :steam and is_nil(item.removed_at),
         distinct: true,
         order_by: [asc: source.id]
+      )
+      |> GameSource.excluding_rejected()
     )
   end
 
