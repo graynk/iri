@@ -695,43 +695,52 @@ defmodule IriWeb.GameLive.Detail do
           <.focus_wrap
             id="screenshot-viewer-focus"
             phx-mounted={JS.focus_first()}
-            class="grid size-full place-items-center p-4 sm:p-8"
+            class="relative flex size-full items-center justify-center p-4 pt-20 sm:p-8 sm:pt-20"
           >
             <button
               id="close-screenshot-viewer"
               type="button"
               phx-click="close_screenshot"
               data-dialog-close
-              class="absolute right-4 top-4 grid size-11 place-items-center rounded-lg bg-slate-900 text-slate-200 ring-1 ring-slate-700 transition hover:bg-slate-800 hover:text-heading"
+              class="absolute right-4 top-4 z-20 grid size-11 place-items-center rounded-lg bg-slate-900 text-slate-200 ring-1 ring-slate-700 transition hover:bg-slate-800 hover:text-heading focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300 motion-reduce:transition-none"
               aria-label="Close screenshot viewer"
             >
               <.icon name="hero-x-mark" class="size-6" />
             </button>
-            <button
-              :if={length(@screenshots) > 1}
-              id="previous-screenshot"
-              type="button"
-              phx-click="previous_screenshot"
-              class="absolute left-3 grid size-11 place-items-center rounded-lg bg-slate-900/90 text-heading ring-1 ring-slate-700 transition hover:bg-slate-800 sm:left-6"
-              aria-label="Previous screenshot"
-            >
-              <.icon name="hero-chevron-left" class="size-6" />
-            </button>
-            <img
-              src={screenshot_url(Enum.at(@screenshots, @screenshot_index))}
-              alt={"Screenshot #{@screenshot_index + 1} from #{@game.title}"}
-              class="max-h-[88vh] max-w-full rounded-xl object-contain shadow-2xl shadow-black"
-            />
-            <button
-              :if={length(@screenshots) > 1}
-              id="next-screenshot"
-              type="button"
-              phx-click="next_screenshot"
-              class="absolute right-3 grid size-11 place-items-center rounded-lg bg-slate-900/90 text-heading ring-1 ring-slate-700 transition hover:bg-slate-800 sm:right-6"
-              aria-label="Next screenshot"
-            >
-              <.icon name="hero-chevron-right" class="size-6" />
-            </button>
+            <div id="screenshot-viewer-content" class="flex max-w-full flex-col items-center gap-3">
+              <img
+                id="screenshot-viewer-image"
+                src={screenshot_url(Enum.at(@screenshots, @screenshot_index))}
+                alt={"Screenshot #{@screenshot_index + 1} from #{@game.title}"}
+                class="max-h-[calc(100dvh-11rem)] max-w-full rounded-xl object-contain shadow-2xl shadow-black"
+              />
+              <div
+                :if={length(@screenshots) > 1}
+                id="screenshot-viewer-controls"
+                role="group"
+                aria-label="Screenshot navigation"
+                class="flex shrink-0 items-center justify-center gap-4"
+              >
+                <button
+                  id="previous-screenshot"
+                  type="button"
+                  phx-click="previous_screenshot"
+                  class="grid size-11 place-items-center rounded-lg bg-slate-900/90 text-heading ring-1 ring-slate-700 transition hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300 motion-reduce:transition-none"
+                  aria-label="Previous screenshot"
+                >
+                  <.icon name="hero-chevron-left" class="size-6" />
+                </button>
+                <button
+                  id="next-screenshot"
+                  type="button"
+                  phx-click="next_screenshot"
+                  class="grid size-11 place-items-center rounded-lg bg-slate-900/90 text-heading ring-1 ring-slate-700 transition hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300 motion-reduce:transition-none"
+                  aria-label="Next screenshot"
+                >
+                  <.icon name="hero-chevron-right" class="size-6" />
+                </button>
+              </div>
+            </div>
           </.focus_wrap>
         </div>
 

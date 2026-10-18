@@ -805,10 +805,50 @@ defmodule IriWeb.LibraryLiveTest do
     assert {:ok, _collection, []} = Collections.list_collection_games(scope, favorites.id)
 
     detail |> element("#open-screenshot-0") |> render_click()
-    assert has_element?(detail, "#screenshot-viewer[role='dialog'][phx-remove*='pop_focus']")
+
+    assert has_element?(
+             detail,
+             "#screenshot-viewer[role='dialog'][aria-modal='true'][phx-remove*='pop_focus'][phx-window-keydown='close_screenshot'][phx-key='escape']"
+           )
+
+    assert has_element?(
+             detail,
+             "#screenshot-viewer-focus.relative.flex[phx-hook='Phoenix.FocusWrap'][phx-mounted*='focus_first']"
+           )
+
     assert has_element?(detail, "#screenshot-viewer img[src='/media/#{local_screenshot.id}']")
-    assert has_element?(detail, "#close-screenshot-viewer[data-dialog-close]")
+
+    assert has_element?(
+             detail,
+             "#screenshot-viewer-content.flex-col > #screenshot-viewer-image + #screenshot-viewer-controls[role='group'][aria-label='Screenshot navigation']"
+           )
+
+    assert has_element?(
+             detail,
+             "button#close-screenshot-viewer.top-4.z-20[aria-label='Close screenshot viewer'][data-dialog-close]"
+           )
+
+    for {id, label} <- [
+          {"previous-screenshot", "Previous screenshot"},
+          {"next-screenshot", "Next screenshot"}
+        ] do
+      assert has_element?(
+               detail,
+               "#screenshot-viewer-controls > button##{id}[aria-label='#{label}'][class~='size-11'][class~='focus-visible:outline-teal-300']"
+             )
+
+      refute has_element?(detail, "button##{id}.absolute")
+    end
+
+    detail |> element("#next-screenshot") |> render_click()
+    assert has_element?(detail, "#screenshot-viewer img[src='#{remote_screenshot.remote_url}']")
+    detail |> element("#previous-screenshot") |> render_click()
+    assert has_element?(detail, "#screenshot-viewer img[src='/media/#{local_screenshot.id}']")
     detail |> element("#close-screenshot-viewer") |> render_click()
+    refute has_element?(detail, "#screenshot-viewer")
+
+    detail |> element("#open-screenshot-0") |> render_click()
+    detail |> element("#screenshot-viewer") |> render_keydown(%{"key" => "escape"})
     refute has_element?(detail, "#screenshot-viewer")
 
     assert has_element?(detail, "#load-trailer-0")
