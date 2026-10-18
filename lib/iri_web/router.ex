@@ -99,7 +99,7 @@ defmodule IriWeb.Router do
       live "/collections/:id", CollectionLive.Show, :show
       live "/collections/:id/edit", CollectionLive.Edit, :edit
       live "/games/:slug", GameLive, :show
-      live "/companies/:id", CompanyLive, :show
+      live "/companies/:slug_id", CompanyLive, :show
       live "/settings/account", UserLive.Settings, :edit
       live "/settings/integrations", Settings.IntegrationsLive, :index
       live "/settings/integrations/epic/import", Settings.EpicImportLive, :new

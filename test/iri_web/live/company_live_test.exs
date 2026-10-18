@@ -31,7 +31,7 @@ defmodule IriWeb.CompanyLiveTest do
     _existing = viewer_user_fixture()
 
     assert {:error, {:redirect, %{to: "/users/log-in"}}} =
-             live(conn, ~p"/companies/1")
+             live(conn, ~p"/companies/fixture-company-1")
   end
 
   test "developer and publisher links open accessible games across stores", %{conn: conn} do
@@ -62,7 +62,7 @@ defmodule IriWeb.CompanyLiveTest do
 
     assert has_element?(
              detail,
-             "#game-company-#{alpha_relation.id}[href='/companies/#{company.id}']",
+             "#game-company-#{alpha_relation.id}[href='/companies/#{company.slug}-#{company.id}']",
              company.name
            )
 
@@ -70,11 +70,12 @@ defmodule IriWeb.CompanyLiveTest do
 
     assert has_element?(
              publisher_detail,
-             "#game-company-#{beta_relation.id}[href='/companies/#{company.id}']",
+             "#game-company-#{beta_relation.id}[href='/companies/#{company.slug}-#{company.id}']",
              company.name
            )
 
-    {:ok, company_view, _html} = live(logged_in_conn, ~p"/companies/#{company.id}")
+    {:ok, company_view, _html} =
+      live(logged_in_conn, ~p"/companies/#{"#{company.slug}-#{company.id}"}")
 
     assert has_element?(company_view, "#company-page")
     assert has_element?(company_view, "#company-name", company.name)
@@ -98,6 +99,67 @@ defmodule IriWeb.CompanyLiveTest do
     assert has_element?(company_view, "#company-game-#{alpha.id}", "Developer")
     assert has_element?(company_view, "#company-game-#{beta.id}", "Publisher")
     refute has_element?(company_view, "#company-game-#{inaccessible.id}")
+  end
+
+  test "numeric and outdated company URLs redirect to the current slug", %{conn: conn} do
+    viewer = viewer_user_fixture()
+    account = account_fixture(viewer, :steam, :selected_users)
+    company = company_fixture("Studio With Hyphens 42")
+    game = game_fixture("Accessible game", 2024)
+    add_source(game, account, :steam)
+    company_relation_fixture(game, company, "developer")
+
+    for path <- [~p"/companies/#{company.id}", ~p"/companies/#{"old-studio-name-#{company.id}"}"] do
+      response = conn |> log_in_user(viewer) |> get(path)
+      assert redirected_to(response, 301) == ~p"/companies/#{"#{company.slug}-#{company.id}"}"
+    end
+  end
+
+  test "the ID distinguishes companies sharing a slug", %{conn: conn} do
+    viewer = viewer_user_fixture()
+    account = account_fixture(viewer, :steam, :selected_users)
+    first = company_fixture("Same Studio")
+    second = company_fixture("Same Studio")
+    first_game = game_fixture("First studio game", 2024)
+    second_game = game_fixture("Second studio game", 2025)
+    add_source(first_game, account, :steam)
+    add_source(second_game, account, :steam)
+    company_relation_fixture(first_game, first, "developer")
+    company_relation_fixture(second_game, second, "developer")
+
+    for {company, included, excluded} <- [
+          {first, first_game, second_game},
+          {second, second_game, first_game}
+        ] do
+      {:ok, view, _html} =
+        conn |> log_in_user(viewer) |> live(~p"/companies/#{"#{company.slug}-#{company.id}"}")
+
+      assert has_element?(view, "#company-game-link-#{included.id}", included.title)
+      refute has_element?(view, "#company-game-#{excluded.id}")
+      assert has_element?(view, "a#company-back-to-library[href='/library']", "Back to library")
+    end
+  end
+
+  test "invalid and inaccessible URLs do not expose company details", %{conn: conn} do
+    viewer = viewer_user_fixture()
+    owner = viewer_user_fixture()
+    account = account_fixture(owner, :steam, :selected_users)
+    company = company_fixture("Private Studio")
+    game = game_fixture("Private game", 2024)
+    add_source(game, account, :steam)
+    company_relation_fixture(game, company, "developer")
+
+    for param <- [
+          "invalid",
+          "studio-0",
+          "studio-123invalid",
+          "#{company.id}",
+          "wrong-name-#{company.id}",
+          "#{company.slug}-#{company.id}"
+        ] do
+      assert {:error, {:live_redirect, %{to: "/library"}}} =
+               conn |> log_in_user(viewer) |> live(~p"/companies/#{param}")
+    end
   end
 
   defp account_fixture(owner, provider, sharing_policy) do

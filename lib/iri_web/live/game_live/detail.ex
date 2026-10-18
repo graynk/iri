@@ -481,7 +481,7 @@ defmodule IriWeb.GameLive.Detail do
                     {company_role_label(relation)}
                     <.link
                       id={"game-company-#{relation.id}"}
-                      navigate={~p"/companies/#{relation.company.id}"}
+                      navigate={~p"/companies/#{"#{relation.company.slug}-#{relation.company.id}"}"}
                       class="ml-1 text-slate-300 transition hover:text-teal-200"
                     >
                       {relation.company.name}

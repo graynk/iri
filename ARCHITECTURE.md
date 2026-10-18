@@ -96,7 +96,7 @@ assigns the cookie-selected theme via `IriWeb.Theme`.
 | Public | `GET /media/:id` | `MediaController`; serves a safe local file or redirects to a validated provider URL. |
 | Optional login | `/users/register`, `/users/log-in` | `UserLive.Registration`, `UserLive.Login`. |
 | Optional login | `/collections/shared?share_token=…` | `CollectionLive.Shared`; a read-only capability link, not an account-based share. |
-| Authenticated | `/library`, `/games/:slug`, `/companies/:id` | `LibraryLive`, `GameLive`, `CompanyLive`. |
+| Authenticated | `/library`, `/games/:slug`, `/companies/:slug-:id` | `LibraryLive`, `GameLive`, `CompanyLive`. |
 | Authenticated | `/collections…` | Collection index, form, show, editor, and export controllers. |
 | Authenticated | `/settings/integrations…` | Provider connection plus Epic and PSN snapshot import pages. |
 | Administrator | `/settings/accounts`, `/settings/sync`, `/settings/matches…` | Account administration, durable-run status, and catalog matching. |
