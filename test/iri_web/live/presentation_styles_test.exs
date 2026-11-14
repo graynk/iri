@@ -38,7 +38,7 @@ defmodule IriWeb.PresentationStylesTest do
     source =
       compatibility_source()
       |> Map.put(:library_items, [
-        %{removed_at: nil, provider_account: %{enabled: true}}
+        %{removed_at: nil}
       ])
 
     details = GamePresentation.compatibility_details(%{sources: [source]})

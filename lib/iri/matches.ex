@@ -44,12 +44,10 @@ defmodule Iri.Matches do
       query =
         from source in GameSource,
           join: item in assoc(source, :library_items),
-          join: account in assoc(item, :provider_account),
           where:
             (source.provider in ^@review_providers or source.id == ^focus_id) and
               not source.manual_lock and
-              is_nil(source.game_id) and not item.hidden and
-              is_nil(item.removed_at) and account.enabled and
+              is_nil(source.game_id) and is_nil(item.removed_at) and
               (is_nil(source.catalog_kind) or source.catalog_kind in ["game", "unknown"]),
           distinct: true,
           order_by: [asc: source.normalized_source_title, asc: source.id],
@@ -93,11 +91,9 @@ defmodule Iri.Matches do
       query =
         from source in GameSource,
           join: item in assoc(source, :library_items),
-          join: account in assoc(item, :provider_account),
           where:
             source.provider in ^@review_providers and not source.manual_lock and
-              is_nil(source.game_id) and not item.hidden and
-              is_nil(item.removed_at) and account.enabled and
+              is_nil(source.game_id) and is_nil(item.removed_at) and
               (is_nil(source.catalog_kind) or source.catalog_kind in ["game", "unknown"]),
           select: count(source.id, :distinct)
 
@@ -391,10 +387,9 @@ defmodule Iri.Matches do
        Repo.all(
          from source in GameSource,
            join: item in assoc(source, :library_items),
-           join: account in assoc(item, :provider_account),
            where:
              source.provider in ^@review_providers and source.manual_lock and
-               not item.hidden and is_nil(item.removed_at) and account.enabled,
+               is_nil(item.removed_at),
            distinct: true,
            order_by: [asc: source.normalized_source_title, asc: source.id],
            limit: ^limit,
@@ -445,10 +440,7 @@ defmodule Iri.Matches do
     Repo.all(
       from source in GameSource,
         join: item in assoc(source, :library_items),
-        join: account in assoc(item, :provider_account),
-        where:
-          source.game_id == ^game_id and not item.hidden and
-            is_nil(item.removed_at) and account.enabled,
+        where: source.game_id == ^game_id and is_nil(item.removed_at),
         distinct: true,
         order_by: [asc: source.id]
     )
@@ -499,10 +491,9 @@ defmodule Iri.Matches do
     Repo.one(
       from source in GameSource,
         join: item in assoc(source, :library_items),
-        join: account in assoc(item, :provider_account),
         where:
           source.id == ^source_id and source.provider in ^@review_providers and
-            not item.hidden and is_nil(item.removed_at) and account.enabled,
+            is_nil(item.removed_at),
         distinct: true,
         limit: 1
     )

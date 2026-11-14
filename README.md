@@ -11,7 +11,7 @@ IRI is a self-hosted backlog management game library exploring thingy. The featu
 * Automatically (or semi-automatically) import your games from Steam, GOG, Epic Games, PlayStation and Xbox;
 * Manually add games (provided they can be found in IGDB or VNDB);
 * Family sharing mode (so that other users in your family can browse your enormous library);
-* Keeps track of your playtime (only for Steam and GOG);
+* Keeps track of your playtime (imported from Steam, GOG and Xbox; hours you type in by hand add on top of whatever the stores report);
 * Record which games you've dropped and which you've beaten, along with your rating and notes.
 * Search by tags, genres, and hardware capabilities (i.e. "does it run well on Steam Deck");
 * Convenient (well, convenient to me) bulk edit mode;

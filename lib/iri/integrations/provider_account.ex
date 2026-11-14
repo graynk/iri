@@ -30,7 +30,6 @@ defmodule Iri.Integrations.ProviderAccount do
     field :provider, Ecto.Enum, values: [:steam, :gog, :custom, :epic, :psn, :xbox]
     field :external_user_id, :string
     field :display_name, :string
-    field :enabled, :boolean, default: true
 
     field :sharing_policy, Ecto.Enum,
       values: [:inherit, :everyone, :selected_users],
@@ -50,7 +49,6 @@ defmodule Iri.Integrations.ProviderAccount do
       :provider,
       :external_user_id,
       :display_name,
-      :enabled,
       :sharing_policy
     ])
     |> update_change(:external_user_id, &String.trim/1)

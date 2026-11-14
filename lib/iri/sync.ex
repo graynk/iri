@@ -171,7 +171,7 @@ defmodule Iri.Sync do
 
     with :ok <- authorize_account_owner(scope, provider_account_id),
          :ok <- recover_expired_runs(),
-         %ProviderAccount{provider: ^provider, enabled: true} = account <-
+         %ProviderAccount{provider: ^provider} = account <-
            Repo.get(ProviderAccount, provider_account_id),
          false <- active_run?(account.id),
          {:ok, run} <- create_account_run(account, spec) do
@@ -877,7 +877,7 @@ defmodule Iri.Sync do
 
   defp load_enrichment_account(provider_account_id) do
     case Repo.get(ProviderAccount, provider_account_id) do
-      %ProviderAccount{provider: provider, enabled: true} = account
+      %ProviderAccount{provider: provider} = account
       when provider in [:steam, :gog] ->
         {:ok, account}
 

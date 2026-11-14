@@ -20,6 +20,7 @@ defmodule Iri.Library.GameSource do
 
   use Ecto.Schema
   import Ecto.Changeset
+  import Ecto.Query
 
   alias Iri.Library.{Game, LibraryItem, MatchCandidate}
 
@@ -49,6 +50,16 @@ defmodule Iri.Library.GameSource do
     has_many :library_items, LibraryItem
     has_many :match_candidates, MatchCandidate
     timestamps(type: :utc_datetime)
+  end
+
+  @doc "Excludes rejected sources using both decision provenance and catalog classification."
+  def excluding_rejected(query, binding \\ :source) do
+    where(
+      query,
+      [{^binding, source}],
+      (is_nil(source.match_method) or source.match_method not in ["rejected", "ai_rejected"]) and
+        (is_nil(source.catalog_kind) or source.catalog_kind != "rejected")
+    )
   end
 
   def changeset(source, attrs) do

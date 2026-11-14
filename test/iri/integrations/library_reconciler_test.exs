@@ -116,5 +116,44 @@ defmodule Iri.Integrations.LibraryReconcilerTest do
     refute kept.removed_at
   end
 
-  defp entry(id), do: %{external_id: id, title: "Game #{id}", relationship: :owned, metadata: %{}}
+  test "a re-uploaded snapshot keeps manual hours but an Xbox re-import refreshes them" do
+    scope = viewer_user_fixture() |> Scope.for_user()
+    psn_attrs = %{external_user_id: "psn-player", display_name: "PSN player"}
+
+    assert {:ok, %{account: psn}} =
+             LibraryReconciler.import(scope, :psn, psn_attrs, [entry("astro")], complete: false)
+
+    psn_item = Repo.get_by!(LibraryItem, provider_account_id: psn.id)
+    psn_item |> Ecto.Changeset.change(playtime_minutes: 750) |> Repo.update!()
+
+    assert {:ok, _result} =
+             LibraryReconciler.import(scope, :psn, psn_attrs, [entry("astro")], complete: false)
+
+    assert Repo.get!(LibraryItem, psn_item.id).playtime_minutes == 750
+
+    xbox_attrs = %{external_user_id: "xuid", display_name: "Xbox"}
+    halo = %{entry("halo") | playtime_minutes: 120}
+
+    assert {:ok, %{account: xbox}} =
+             LibraryReconciler.import(scope, :xbox, xbox_attrs, [halo], complete: false)
+
+    xbox_item = Repo.get_by!(LibraryItem, provider_account_id: xbox.id)
+    assert xbox_item.playtime_minutes == 120
+
+    assert {:ok, _result} =
+             LibraryReconciler.import(scope, :xbox, xbox_attrs, [%{halo | playtime_minutes: 300}],
+               complete: false
+             )
+
+    assert Repo.get!(LibraryItem, xbox_item.id).playtime_minutes == 300
+  end
+
+  defp entry(id),
+    do: %{
+      external_id: id,
+      title: "Game #{id}",
+      relationship: :owned,
+      playtime_minutes: 0,
+      metadata: %{}
+    }
 end

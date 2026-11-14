@@ -245,7 +245,7 @@ defmodule IriWeb.CollectionLiveTest do
 
     assert_patch(
       show,
-      ~p"/collections/#{collection.id}?#{%{sort: "release_year", direction: "desc"}}"
+      ~p"/collections/#{collection.id}?#{%{sort: "release_date", direction: "desc"}}"
     )
 
     assert Repo.get!(Collection, collection.id).updated_at == collection_updated_at

@@ -31,6 +31,13 @@ defmodule Iri.Library do
   @page_size 48
   @tag_kinds ["keyword", "player_perspective"]
 
+  @doc "Returns the default direction for a library sort, including legacy sort names."
+  def default_direction(sort)
+      when sort in ["date_added", "release_date", "release_year", "rating_desc", "my_rating_desc"],
+      do: "desc"
+
+  def default_direction(_sort), do: "asc"
+
   @doc """
   Returns one page of canonical library entries visible to `scope`.
 
@@ -81,9 +88,16 @@ defmodule Iri.Library do
     page_number = min(requested_page, page_count)
 
     page_query =
-      if filters["sort"] == "playtime",
-        do: with_personal_playtime(query, user),
-        else: query
+      case filters["sort"] do
+        "playtime" ->
+          with_personal_playtime(query, user)
+
+        "date_added" ->
+          with_date_added(query, filters, accessible_account_ids)
+
+        _other ->
+          query
+      end
 
     page =
       page_query
@@ -95,7 +109,7 @@ defmodule Iri.Library do
     items_query =
       from item in LibraryItem,
         where:
-          not item.hidden and is_nil(item.removed_at) and
+          is_nil(item.removed_at) and
             item.provider_account_id in subquery(accessible_account_ids),
         preload: [:provider_account]
 
@@ -159,31 +173,20 @@ defmodule Iri.Library do
   @doc "Returns the accessible accounts and taxonomy terms used by the library filter panel."
   def list_filter_options(%Scope{user: user} = scope) when not is_nil(user) do
     accessible_account_ids = Access.account_ids(scope)
+    owned_items = owned_library_items(normalize_filter_params(%{}), accessible_account_ids)
 
     accounts =
       Repo.all(
-        from account in ProviderAccount,
-          join: item in LibraryItem,
-          on: item.provider_account_id == account.id,
-          join: source in GameSource,
-          on: source.id == item.game_source_id,
-          where:
-            account.id in subquery(accessible_account_ids) and not item.hidden and
-              is_nil(item.removed_at) and
-              (is_nil(source.match_method) or source.match_method != "rejected"),
+        from [owned_account: account] in owned_items,
+          select: account,
           distinct: true
       )
       |> Repo.preload(:owner_user)
       |> Enum.sort_by(&account_filter_sort_key(&1, user))
 
     owned_game_ids =
-      from source in GameSource,
-        join: item in assoc(source, :library_items),
-        join: account in assoc(item, :provider_account),
-        where:
-          not item.hidden and is_nil(item.removed_at) and account.enabled and
-            account.id in subquery(accessible_account_ids) and
-            not is_nil(source.game_id),
+      from [owned_source: source] in owned_items,
+        where: not is_nil(source.game_id),
         select: source.game_id,
         distinct: true
 
@@ -326,8 +329,8 @@ defmodule Iri.Library do
         join: item in assoc(source, :library_items),
         join: account in assoc(item, :provider_account),
         where:
-          game.slug == ^slug and not item.hidden and is_nil(item.removed_at) and
-            account.enabled and account.id in subquery(accessible_account_ids),
+          game.slug == ^slug and is_nil(item.removed_at) and
+            account.id in subquery(accessible_account_ids),
         distinct: true
 
     case Repo.one(query) do
@@ -338,7 +341,7 @@ defmodule Iri.Library do
         items_query =
           from item in LibraryItem,
             where:
-              not item.hidden and is_nil(item.removed_at) and
+              is_nil(item.removed_at) and
                 item.provider_account_id in subquery(accessible_account_ids),
             preload: [:provider_account]
 
@@ -361,6 +364,10 @@ defmodule Iri.Library do
   defdelegate set_game_state(scope, game_id, state),
     to: Personalization,
     as: :set_completion_state
+
+  @doc "Records the current user's manual playtime offset, in minutes, for an accessible game."
+  def set_playtime_offset(scope, game_id, minutes),
+    do: Personalization.set_playtime_offset(scope, game_id, minutes)
 
   @doc "Clears the current user's completion state for an accessible game."
   def clear_game_state(scope, game_id),
@@ -433,17 +440,19 @@ defmodule Iri.Library do
     )
   end
 
-  defp owned_source_ids(filters, accessible_account_ids) do
+  defp owned_library_items(filters, accessible_account_ids) do
     query =
       from item in LibraryItem,
+        as: :owned_item,
         join: account in assoc(item, :provider_account),
+        as: :owned_account,
         join: source in assoc(item, :game_source),
+        as: :owned_source,
         where:
-          not item.hidden and is_nil(item.removed_at) and account.enabled and
-            account.id in subquery(accessible_account_ids) and
-            (is_nil(source.match_method) or source.match_method != "rejected") and
-            (is_nil(source.catalog_kind) or source.catalog_kind in ["game", "unknown"]),
-        select: source.id
+          is_nil(item.removed_at) and account.id in subquery(accessible_account_ids) and
+            (is_nil(source.catalog_kind) or source.catalog_kind in ["game", "unknown"])
+
+    query = GameSource.excluding_rejected(query, :owned_source)
 
     providers = Enum.map(filters["providers"], &String.to_existing_atom/1)
 
@@ -451,7 +460,7 @@ defmodule Iri.Library do
       if providers == [] do
         query
       else
-        from [item, account, source] in query, where: source.provider in ^providers
+        from [owned_source: source] in query, where: source.provider in ^providers
       end
 
     account_ids = Enum.map(filters["account_ids"], &String.to_integer/1)
@@ -459,8 +468,14 @@ defmodule Iri.Library do
     if account_ids == [] do
       query
     else
-      from [item, account, source] in query, where: account.id in ^account_ids
+      from [owned_account: account] in query, where: account.id in ^account_ids
     end
+  end
+
+  defp owned_source_ids(filters, accessible_account_ids) do
+    filters
+    |> owned_library_items(accessible_account_ids)
+    |> select([owned_source: source], source.id)
   end
 
   defp apply_taxonomy_filters(query, filters) do
@@ -648,7 +663,7 @@ defmodule Iri.Library do
   defp normalize_providers(values) do
     values
     |> list_value()
-    |> Enum.filter(&(&1 in ["steam", "gog"]))
+    |> Enum.filter(&(&1 in ["steam", "gog", "epic", "psn", "xbox", "igdb"]))
     |> Enum.uniq()
     |> Enum.sort()
   end
@@ -694,16 +709,17 @@ defmodule Iri.Library do
 
   defp normalize_sort("rating_desc"), do: "rating"
   defp normalize_sort("my_rating_desc"), do: "my_rating"
+  defp normalize_sort("release_year"), do: "release_date"
 
   defp normalize_sort(value)
-       when value in ["title", "rating", "my_rating", "playtime", "release_year"],
+       when value in ["title", "rating", "my_rating", "playtime", "release_date", "date_added"],
        do: value
 
   defp normalize_sort(_value), do: "title"
 
   defp normalize_direction(value, _sort) when value in ["asc", "desc"], do: value
-  defp normalize_direction(nil, sort) when sort in ["rating_desc", "my_rating_desc"], do: "desc"
-  defp normalize_direction(_value, _sort), do: "asc"
+
+  defp normalize_direction(_value, sort), do: default_direction(sort)
 
   defp list_value(values) when is_list(values), do: values
   defp list_value(value) when is_binary(value), do: [value]
@@ -828,7 +844,10 @@ defmodule Iri.Library do
   end
 
   # Playtime sorting uses the viewer's own accounts only, so a shared library's
-  # owner sees their own hours ranked, never another user's.
+  # owner sees their own hours ranked, never another user's. The subqueries
+  # stay item-driven and select raw sums (no offset, no clamp); the clamped
+  # total is computed in the ORDER BY fragment, which also reaches the
+  # viewer's offset through the base query's user_state join.
   defp with_personal_playtime(query, user) do
     personal_account_filter = Playtime.personal_account_filter(user)
 
@@ -838,11 +857,11 @@ defmodule Iri.Library do
         as: :account,
         on: account.id == item.provider_account_id,
         where: ^personal_account_filter,
-        where: account.enabled and not item.hidden and is_nil(item.removed_at),
+        where: is_nil(item.removed_at),
         group_by: item.game_source_id,
         select: %{
           source_id: item.game_source_id,
-          minutes: max(item.playtime_minutes)
+          minutes: sum(item.playtime_minutes)
         }
 
     personal_game_playtime =
@@ -854,12 +873,12 @@ defmodule Iri.Library do
         on: account.id == item.provider_account_id,
         where: ^personal_account_filter,
         where:
-          account.enabled and not item.hidden and is_nil(item.removed_at) and
+          is_nil(item.removed_at) and
             not is_nil(playtime_source.game_id),
         group_by: playtime_source.game_id,
         select: %{
           game_id: playtime_source.game_id,
-          minutes: max(item.playtime_minutes)
+          minutes: sum(item.playtime_minutes)
         }
 
     from [source: source] in query,
@@ -869,6 +888,39 @@ defmodule Iri.Library do
       left_join: source_playtime in subquery(personal_source_playtime),
       as: :source_playtime,
       on: source_playtime.source_id == source.id
+  end
+
+  # A canonical card may represent several provider sources and accounts. Use
+  # the first active ownership record in the selected account/provider set so
+  # acquiring the same game from another store does not make it look new again.
+  defp with_date_added(query, filters, accessible_account_ids) do
+    owned_items = owned_library_items(filters, accessible_account_ids)
+
+    # Positive game IDs and negated source IDs keep matched games and unmatched
+    # sources in separate identity spaces while aggregating ownership only once.
+    dates =
+      from [owned_item: item, owned_source: source] in owned_items,
+        group_by: fragment("COALESCE(?, -?)", source.game_id, source.id),
+        select: %{
+          entry_id: fragment("COALESCE(?, -?)", source.game_id, source.id),
+          added_at: min(item.inserted_at)
+        }
+
+    from [source: source] in query,
+      left_join: date_added in subquery(dates),
+      as: :date_added,
+      on: date_added.entry_id == fragment("COALESCE(?, -?)", source.game_id, source.id)
+  end
+
+  defp apply_sort(query, "date_added", direction) do
+    order = if direction == "asc", do: :asc, else: :desc
+
+    from [source: source, game: game, date_added: date_added] in query,
+      order_by: [
+        {^order, date_added.added_at},
+        {:asc, fragment("COALESCE(?, ?)", game.normalized_title, source.normalized_source_title)},
+        {:asc, source.id}
+      ]
   end
 
   defp apply_sort(query, "rating", "desc") do
@@ -911,15 +963,26 @@ defmodule Iri.Library do
       ]
   end
 
+  # The subqueries select the raw sums of the viewer's personal store hours;
+  # the clamped total (sum + manual offset, floored at 0) is computed here,
+  # where the base query's user_state join is in scope. A game with an offset
+  # but no personal items still ranks by its offset, matching the display.
   defp apply_sort(query, "playtime", "desc") do
     from [
            source: source,
            game: game,
            game_playtime: game_playtime,
-           source_playtime: source_playtime
+           source_playtime: source_playtime,
+           user_state: user_state
          ] in query,
          order_by: [
-           desc: fragment("COALESCE(?, ?, 0)", game_playtime.minutes, source_playtime.minutes),
+           desc:
+             fragment(
+               "COALESCE(MAX(0, COALESCE(?, ?, 0) + COALESCE(?, 0)), 0)",
+               game_playtime.minutes,
+               source_playtime.minutes,
+               user_state.playtime_offset_minutes
+             ),
            asc: fragment("COALESCE(?, ?)", game.normalized_title, source.normalized_source_title),
            asc: source.id
          ]
@@ -930,30 +993,37 @@ defmodule Iri.Library do
            source: source,
            game: game,
            game_playtime: game_playtime,
-           source_playtime: source_playtime
+           source_playtime: source_playtime,
+           user_state: user_state
          ] in query,
          order_by: [
-           asc: fragment("COALESCE(?, ?, 0)", game_playtime.minutes, source_playtime.minutes),
+           asc:
+             fragment(
+               "COALESCE(MAX(0, COALESCE(?, ?, 0) + COALESCE(?, 0)), 0)",
+               game_playtime.minutes,
+               source_playtime.minutes,
+               user_state.playtime_offset_minutes
+             ),
            asc: fragment("COALESCE(?, ?)", game.normalized_title, source.normalized_source_title),
            asc: source.id
          ]
   end
 
-  defp apply_sort(query, "release_year", "desc") do
+  defp apply_sort(query, "release_date", "desc") do
     from [source: source, game: game] in query,
       order_by: [
-        asc: is_nil(game.release_year),
-        desc: game.release_year,
+        asc: is_nil(game.release_date),
+        desc: game.release_date,
         asc: fragment("COALESCE(?, ?)", game.normalized_title, source.normalized_source_title),
         asc: source.id
       ]
   end
 
-  defp apply_sort(query, "release_year", _asc) do
+  defp apply_sort(query, "release_date", _asc) do
     from [source: source, game: game] in query,
       order_by: [
-        asc: is_nil(game.release_year),
-        asc: game.release_year,
+        asc: is_nil(game.release_date),
+        asc: game.release_date,
         asc: fragment("COALESCE(?, ?)", game.normalized_title, source.normalized_source_title),
         asc: source.id
       ]

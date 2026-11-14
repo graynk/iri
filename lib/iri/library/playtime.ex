@@ -17,17 +17,26 @@
 
 defmodule Iri.Library.Playtime do
   @moduledoc """
-  Identifies which provider account a game's playtime "belongs to" for a user.
+  Playtime attribution and the one clamped total computation.
 
   Playtime is always the *viewer's own* — a user sees the hours from their own
   Steam account (the one they play on), never another user's, even when the
   game itself lives in a library shared with them.
+
+  `total_minutes/2` is the single place that combines the viewer's store
+  hours with their manual offset, clamped at zero. Every read path in the
+  web layer must compute its total through it so a below-zero total can
+  never reach a label, a sort, or an export.
   """
 
   import Ecto.Query
 
   alias Iri.Accounts.User
   alias Iri.Integrations.ProviderAccount
+
+  # Stores that report hours of their own. Their sync always wins: a provider
+  # moved onto this list overwrites manual values on its next import.
+  @self_reported_providers [:steam, :gog, :xbox]
 
   @doc """
   Query filter (bound as `account`) selecting the accounts whose playtime counts
@@ -89,4 +98,26 @@ defmodule Iri.Library.Playtime do
       do: true
 
   def personal_account?(%ProviderAccount{}, %User{}), do: false
+
+  @doc "Whether a store brings its own playtime, making the field read-only."
+  def self_reported?(provider), do: provider in @self_reported_providers
+
+  @doc """
+  The viewer's total playtime, in minutes, for a game.
+
+  `items` are the viewer's own visible library items for the game (already
+  filtered through `personal_account?/2` and the usual removed-item filter);
+  `offset_minutes` is their manual offset (0 when unset). Store
+  hours sum across stores, the offset is added on top, and the result is
+  clamped at zero — a below-zero sum can never be returned.
+  """
+  @spec total_minutes([map()], integer()) :: non_neg_integer()
+  def total_minutes(items, offset_minutes) when is_list(items) and is_integer(offset_minutes) do
+    store_minutes =
+      items
+      |> Enum.map(&(&1.playtime_minutes || 0))
+      |> Enum.sum()
+
+    max(0, store_minutes + offset_minutes)
+  end
 end

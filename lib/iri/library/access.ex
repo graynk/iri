@@ -39,9 +39,8 @@ defmodule Iri.Library.Access do
         field(share, :provider_account_id) == account.id and
           field(share, :user_id) == ^user.id,
       where:
-        account.enabled and
-          (account.sharing_policy in ^shared_policies or account.owner_user_id == ^user.id or
-             not is_nil(field(share, :user_id))),
+        account.sharing_policy in ^shared_policies or account.owner_user_id == ^user.id or
+          not is_nil(field(share, :user_id)),
       distinct: true,
       select: account.id
   end
@@ -54,8 +53,8 @@ defmodule Iri.Library.Access do
       join: item in assoc(source, :library_items),
       join: account in assoc(item, :provider_account),
       where:
-        not item.hidden and is_nil(item.removed_at) and account.enabled and
-          account.id in subquery(accessible_account_ids) and not is_nil(source.game_id),
+        is_nil(item.removed_at) and account.id in subquery(accessible_account_ids) and
+          not is_nil(source.game_id),
       select: source.game_id,
       distinct: true
   end
@@ -70,7 +69,7 @@ defmodule Iri.Library.Access do
         join: source in assoc(game, :sources),
         join: item in assoc(source, :library_items),
         where:
-          game.id == ^game_id and not item.hidden and is_nil(item.removed_at) and
+          game.id == ^game_id and is_nil(item.removed_at) and
             item.provider_account_id in subquery(account_ids)
     )
   end

@@ -170,7 +170,7 @@ defmodule Iri.Collections.StaticExport do
         </header>
         <section class="controls" aria-label="Collection controls">
           <input class="control" type="search" data-search placeholder="Search this collection…" aria-label="Search this collection">
-          <select class="control" data-sort aria-label="Sort collection"><option value="position">Collection order</option><option value="title">Title</option><option value="year">Release year</option><option value="rating">#{h(owner_name)}'s rating</option><option value="playtime">Playtime</option><option value="igdb">IGDB rating</option></select>
+          <select class="control" data-sort aria-label="Sort collection"><option value="position">Collection order</option><option value="title">Title</option><option value="release">Release date</option><option value="rating">#{h(owner_name)}'s rating</option><option value="playtime">Playtime</option><option value="igdb">IGDB rating</option></select>
           <button class="button" type="button" data-direction aria-label="Sort direction: ascending. Change to descending">↑ Ascending</button>
         </section>
         <p class="sr-only" role="status" data-result-summary></p>
@@ -183,13 +183,12 @@ defmodule Iri.Collections.StaticExport do
   end
 
   defp index_card(entry) do
-    year = entry.release_year || 0
     rating = entry.personal_rating || 0
     igdb = entry.igdb_rating || 0
     search = String.downcase("#{entry.title} #{entry.comment || ""}")
 
     """
-    <article class="game-card" data-game-entry data-position="#{entry.position}" data-title="#{ha(String.downcase(entry.title))}" data-year="#{year}" data-rating="#{rating}" data-playtime="#{entry.playtime_minutes}" data-igdb="#{igdb}" data-search="#{ha(search)}">
+    <article class="game-card" data-game-entry data-position="#{entry.position}" data-title="#{ha(String.downcase(entry.title))}" data-release="#{sortable_release(entry)}" data-rating="#{rating}" data-playtime="#{entry.playtime_minutes}" data-igdb="#{igdb}" data-search="#{ha(search)}">
       <a class="cover" href="#{ha(page_href(entry))}" tabindex="-1" aria-hidden="true">#{cover_markup(entry, :decorative)}</a>
       <div class="card-body"><h2 class="game-title"><a href="#{ha(page_href(entry))}">#{h(entry.title)}</a></h2><div class="metadata">#{year_chip(entry.release_year)}#{rating_chip(entry.personal_rating)}#{playtime_chip(entry.playtime_minutes)}</div>#{comment_markup(entry.comment)}</div>
     </article>
@@ -377,6 +376,13 @@ defmodule Iri.Collections.StaticExport do
 
   defp year_chip(year) when is_integer(year), do: ~s(<span class="chip">#{year}</span>)
   defp year_chip(_year), do: ""
+
+  # Sorts as YYYYMMDD so the exported page orders releases by date, not just year.
+  defp sortable_release(%{release_date: %Date{} = date}),
+    do: date.year * 10_000 + date.month * 100 + date.day
+
+  defp sortable_release(%{release_year: year}) when is_integer(year), do: year * 10_000
+  defp sortable_release(_entry), do: 0
 
   defp igdb_chip(rating) when is_number(rating),
     do: ~s(<span class="chip">IGDB #{round(rating)}%</span>)

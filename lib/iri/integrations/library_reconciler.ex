@@ -28,7 +28,7 @@ defmodule Iri.Integrations.LibraryReconciler do
 
   alias Iri.Accounts.{Scope, User}
   alias Iri.Integrations.ProviderAccount
-  alias Iri.Library.{GameSource, LibraryItem, Title}
+  alias Iri.Library.{GameSource, LibraryItem, Playtime, Title}
   alias Iri.Repo
   alias Iri.Security.Redactor
   alias Iri.Sync.{SyncError, SyncRun}
@@ -91,7 +91,6 @@ defmodule Iri.Integrations.LibraryReconciler do
               relationships[Map.fetch!(sources, entry.external_id)],
               Map.get(entry, :relationship, :owned)
             ),
-          hidden: false,
           playtime_minutes: Map.get(entry, :playtime_minutes) || 0,
           removed_at: nil,
           inserted_at: now,
@@ -101,15 +100,7 @@ defmodule Iri.Integrations.LibraryReconciler do
 
     Repo.insert_all(LibraryItem, item_rows,
       conflict_target: [:provider_account_id, :game_source_id],
-      on_conflict:
-        {:replace,
-         [
-           :relationship,
-           :hidden,
-           :playtime_minutes,
-           :removed_at,
-           :updated_at
-         ]}
+      on_conflict: {:replace, replaceable_item_fields(account.provider)}
     )
 
     removed = if complete?, do: remove_absent(account, Map.values(sources), now), else: 0
@@ -269,8 +260,7 @@ defmodule Iri.Integrations.LibraryReconciler do
     |> ProviderAccount.changeset(%{
       provider: provider,
       external_user_id: external_id,
-      display_name: Map.get(attrs, :display_name, external_id),
-      enabled: true
+      display_name: Map.get(attrs, :display_name, external_id)
     })
     |> Ecto.Changeset.put_change(:owner_user_id, user.id)
     |> Ecto.Changeset.put_change(:sync_status, "completed")
@@ -302,6 +292,15 @@ defmodule Iri.Integrations.LibraryReconciler do
   defp strongest_relationship(:owned, _new), do: :owned
   defp strongest_relationship(_existing, :owned), do: :owned
   defp strongest_relationship(_existing, relationship), do: relationship
+
+  # A store that reports its own hours overwrites them on every import; for one
+  # that does not, a re-uploaded snapshot must leave the viewer's typed-in value
+  # alone.
+  defp replaceable_item_fields(provider) do
+    base = [:relationship, :removed_at, :updated_at]
+
+    if Playtime.self_reported?(provider), do: [:playtime_minutes | base], else: base
+  end
 
   defp source_row(provider, entry, now) do
     snapshot = Map.get(entry, :metadata, %{})

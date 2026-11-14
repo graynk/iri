@@ -276,6 +276,9 @@ defmodule IriWeb.CollectionExportControllerTest do
 
     assert files["static-picks/index.html"] =~ "<script>(()=>{"
     assert files["static-picks/index.html"] =~ ~s(<h2 class="sr-only">Games</h2>)
+    assert files["static-picks/index.html"] =~ ~s(<option value="release">Release date</option>)
+    assert files["static-picks/index.html"] =~ ~s(data-release="20240517")
+    assert files["static-picks/index.html"] =~ ~s(<span class="chip">2024</span>)
 
     assert files["static-picks/index.html"] =~
              ~r/<a class="cover"[^>]+aria-hidden="true"><img[^>]+class="sensitive"><\/a>/
@@ -340,6 +343,7 @@ defmodule IriWeb.CollectionExportControllerTest do
         title: title,
         normalized_title: Title.normalize(title),
         slug: "collection-export-game-#{unique}",
+        release_date: ~D[2024-05-17],
         release_year: 2024,
         rating: 87.5
       })

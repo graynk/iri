@@ -28,6 +28,7 @@ defmodule IriWeb.GameLive do
   alias Iri.Library.Personalization
   alias Iri.Media.Policy
   alias Iri.Matches
+  alias Iri.Params
 
   @impl true
   def mount(%{"slug" => slug}, _session, socket) do
@@ -46,8 +47,10 @@ defmodule IriWeb.GameLive do
          |> assign(:game_state, preferences)
          |> assign(:rating_form, rating_form(preferences))
          |> assign(:note_form, note_form(preferences))
+         |> assign(:playtime_form, playtime_form(game))
          |> assign(:rating_message, nil)
          |> assign(:note_message, nil)
+         |> assign(:playtime_message, nil)
          |> assign_collection_memberships(memberships)
          |> assign(:cover, cover_asset(game, user))
          |> assign(:screenshots, screenshots(game, user))
@@ -212,6 +215,16 @@ defmodule IriWeb.GameLive do
 
   def handle_event("save_note", _params, socket), do: {:noreply, socket}
 
+  def handle_event("save_playtime", %{"playtime" => %{"hours" => hours}}, socket) do
+    save_personal_playtime(socket, hours)
+  end
+
+  def handle_event("save_playtime", %{"value" => hours}, socket) do
+    save_personal_playtime(socket, hours)
+  end
+
+  def handle_event("save_playtime", _params, socket), do: {:noreply, socket}
+
   def handle_event("update_collections", %{"collections" => params}, socket) do
     collection_ids =
       params
@@ -344,6 +357,7 @@ defmodule IriWeb.GameLive do
 
     socket
     |> assign(:game, game)
+    |> assign(:playtime_form, playtime_form(game))
     |> assign(:cover, cover_asset(game, user))
     |> assign(:screenshots, screenshots(game, user))
     |> assign(:sensitive_media_blurred?, Policy.blurred?(game, user))
@@ -372,6 +386,39 @@ defmodule IriWeb.GameLive do
 
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "Could not save your note.")}
+    end
+  end
+
+  # A narrow refresh: the full reload_game/1 also resets the screenshot and
+  # NSFW-reveal assigns, which typing hours has no business doing.
+  defp save_personal_playtime(socket, hours) do
+    scope = socket.assigns.current_scope
+
+    case Params.hours_to_minutes(hours) do
+      {:ok, minutes} ->
+        with {:ok, _minutes} <-
+               Library.set_playtime_offset(scope, socket.assigns.game.id, minutes),
+             {:ok, game} <- Library.get_game_by_slug(scope, socket.assigns.game.slug) do
+          {:noreply,
+           socket
+           |> assign(:game, game)
+           |> assign(:playtime_form, playtime_form(game))
+           |> assign(:playtime_message, "Playtime saved.")}
+        else
+          # A save or reload failure (e.g. the game stopped being
+          # accessible), not a bad value.
+          _error ->
+            {:noreply,
+             socket
+             |> assign(:playtime_message, nil)
+             |> put_flash(:error, "Could not save your playtime.")}
+        end
+
+      :error ->
+        {:noreply,
+         socket
+         |> assign(:playtime_message, nil)
+         |> put_flash(:error, "Enter hours between 0 and 100,000.")}
     end
   end
 

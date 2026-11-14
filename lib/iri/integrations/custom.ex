@@ -64,7 +64,9 @@ defmodule Iri.Integrations.Custom do
     end
   end
 
-  @doc "Fetches selected IGDB records and creates private custom-library ownership."
+  @doc """
+  Fetches selected IGDB records and creates private custom-library ownership.
+  """
   def add_ids(scope, ids, options \\ [])
 
   def add_ids(%Scope{user: %User{} = user} = scope, ids, options) when is_list(ids) do
@@ -74,6 +76,7 @@ defmodule Iri.Integrations.Custom do
       results = Enum.map(payloads, &add_payload(scope, user, &1))
       added = Enum.count(results, &match?({:ok, _}, &1))
       already_owned = Enum.count(results, &match?({:already_owned, _}, &1))
+      added_games = for {:ok, game} <- results, do: game
       schedule_cover_cache(results, options)
 
       {:ok,
@@ -82,6 +85,7 @@ defmodule Iri.Integrations.Custom do
          found: length(payloads),
          added: added,
          already_owned: already_owned,
+         added_games: added_games,
          failed: length(ids) - added - already_owned
        }}
     else
@@ -91,6 +95,11 @@ defmodule Iri.Integrations.Custom do
   end
 
   def add_ids(_scope, _ids, _options), do: {:error, :unauthorized}
+
+  @doc "Fetches one selected IGDB record and creates private custom-library ownership."
+  def add_id(scope, id, options \\ [])
+  def add_id(scope, id, options) when is_integer(id), do: add_ids(scope, [id], options)
+  def add_id(_scope, _id, _options), do: {:error, :unauthorized}
 
   @doc "Reports whether IGDB results are already accessible or custom-owned by the viewer."
   def ownership_status(%Scope{user: %User{id: user_id}} = scope, igdb_ids)
@@ -105,8 +114,7 @@ defmodule Iri.Integrations.Custom do
           join: item in assoc(source, :library_items),
           join: account in assoc(item, :provider_account),
           where:
-            game.igdb_id in ^ids and not item.hidden and
-              is_nil(item.removed_at) and account.enabled and
+            game.igdb_id in ^ids and is_nil(item.removed_at) and
               account.id in subquery(accessible_account_ids),
           select: {game.igdb_id, account.provider, account.owner_user_id}
       )
@@ -181,8 +189,7 @@ defmodule Iri.Integrations.Custom do
             join: account in assoc(item, :provider_account),
             where:
               game.id == ^game_id and source.provider == :igdb and account.provider == :custom and
-                account.owner_user_id == ^user_id and not item.hidden and
-                is_nil(item.removed_at),
+                account.owner_user_id == ^user_id and is_nil(item.removed_at),
             limit: 1
 
         case Repo.one(query) do
@@ -233,7 +240,7 @@ defmodule Iri.Integrations.Custom do
       if Access.game?(scope, game.id) do
         {:already_owned, game}
       else
-        with {:ok, account} <- custom_account(user) do
+        with {:ok, account} <- ensure_account(user) do
           Repo.transact(fn ->
             with {:ok, _item} <- upsert_custom_ownership(account, game, payload) do
               {:ok, game}
@@ -248,13 +255,14 @@ defmodule Iri.Integrations.Custom do
     Repo.transact_with_busy_retry(
       fn ->
         with %LibraryItem{} = old_item <- custom_item(user.id, old_game.id),
-             {:ok, _target_item} <- maybe_add_custom_item(scope, user, target_game, payload),
+             {:ok, _target_item} <-
+               maybe_add_custom_item(scope, user, target_game, payload),
              {:ok, _deleted} <- Repo.delete(old_item) do
           old_source_id = old_item.game_source_id
 
-          unless Access.game?(scope, old_game.id) do
-            migrate_personalization(user.id, old_game.id, target_game.id)
-          end
+          # The viewer's own copy of the old game is gone by now, so this
+          # decides what of their personalization follows the re-point.
+          migrate_personalization(scope, user.id, old_game.id, target_game.id)
 
           cleanup_unused_source(old_source_id)
           {:ok, %{game: target_game}}
@@ -271,13 +279,17 @@ defmodule Iri.Integrations.Custom do
     if Access.game?(scope, target_game.id) do
       {:ok, :already_owned}
     else
-      with {:ok, account} <- custom_account(user) do
+      with {:ok, account} <- ensure_account(user) do
         upsert_custom_ownership(account, target_game, payload)
       end
     end
   end
 
-  defp upsert_custom_ownership(account, game, %{"id" => id, "name" => title} = payload) do
+  defp upsert_custom_ownership(
+         account,
+         game,
+         %{"id" => id, "name" => title} = payload
+       ) do
     source =
       Repo.get_by(GameSource, provider: :igdb, external_id: to_string(id)) || %GameSource{}
 
@@ -300,14 +312,15 @@ defmodule Iri.Integrations.Custom do
         Repo.get_by(LibraryItem, provider_account_id: account.id, game_source_id: source.id) ||
           %LibraryItem{}
 
-      item
-      |> LibraryItem.changeset(%{
+      attrs = %{
         provider_account_id: account.id,
         game_source_id: source.id,
         relationship: :manual,
-        hidden: false,
         removed_at: nil
-      })
+      }
+
+      item
+      |> LibraryItem.changeset(attrs)
       |> Repo.insert_or_update()
     end
   end
@@ -320,17 +333,65 @@ defmodule Iri.Integrations.Custom do
         where:
           source.game_id == ^game_id and source.provider == :igdb and
             account.provider == :custom and account.owner_user_id == ^user_id and
-            not item.hidden and is_nil(item.removed_at),
+            is_nil(item.removed_at),
         limit: 1
     )
   end
 
-  defp migrate_personalization(user_id, old_game_id, target_game_id) do
-    migrate_user_state(user_id, old_game_id, target_game_id)
+  defp migrate_personalization(scope, user_id, old_game_id, target_game_id) do
+    # The offset is the viewer's typed hours for their own entry, which now
+    # points at the target, so it always follows the fix — even when the old
+    # game stays reachable (e.g. a family member owns the same game), where
+    # skipping it would strand the hours at 0 on the fixed game. Same for
+    # the collection entries, which organize the viewer's own library.
+    migrate_playtime_offset(user_id, old_game_id, target_game_id)
     migrate_collection_entries(user_id, old_game_id, target_game_id)
+
+    # State, notes, and rating annotate the old game itself, which may still
+    # be a legitimate part of the viewer's library, so they follow the fix
+    # only when the old game is no longer reachable at all.
+    unless Access.game?(scope, old_game_id) do
+      migrate_user_state(user_id, old_game_id, target_game_id)
+    end
+  end
+
+  defp migrate_playtime_offset(user_id, old_game_id, target_game_id) do
+    old_state = Repo.get_by(UserGameState, user_id: user_id, game_id: old_game_id)
+    offset = (old_state && old_state.playtime_offset_minutes) || 0
+
+    if offset > 0 do
+      target_state = Repo.get_by(UserGameState, user_id: user_id, game_id: target_game_id)
+
+      # Offsets are additive personalization: hours typed for the same real
+      # title must not be lost when both rows already exist. Clamping to the
+      # storage bound keeps a pathological sum from tripping the DB check
+      # constraint and failing the whole replace transaction.
+      merged =
+        min(offset + ((target_state && target_state.playtime_offset_minutes) || 0), 6_000_000)
+
+      case target_state do
+        nil ->
+          %UserGameState{user_id: user_id, game_id: target_game_id}
+          |> UserGameState.changeset(%{playtime_offset_minutes: merged})
+          |> Repo.insert!()
+
+        %UserGameState{} = target ->
+          target
+          |> UserGameState.changeset(%{playtime_offset_minutes: merged})
+          |> Repo.update!()
+      end
+
+      # The old row may keep state, notes, or a rating for a game that stays
+      # visible, so only its offset leaves with the fix.
+      old_state |> Ecto.Changeset.change(playtime_offset_minutes: 0) |> Repo.update!()
+    else
+      :ok
+    end
   end
 
   defp migrate_user_state(user_id, old_game_id, target_game_id) do
+    # The offset already moved (and was zeroed on the old row) by
+    # migrate_playtime_offset/3, so only the game-annotating fields merge.
     old_state = Repo.get_by(UserGameState, user_id: user_id, game_id: old_game_id)
     target_state = Repo.get_by(UserGameState, user_id: user_id, game_id: target_game_id)
 
@@ -415,7 +476,8 @@ defmodule Iri.Integrations.Custom do
     end)
   end
 
-  defp custom_account(user) do
+  @doc "Returns a user's custom-library account, creating it when needed."
+  def ensure_account(%User{} = user) do
     external_id = "user:#{user.id}"
 
     account =

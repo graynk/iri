@@ -55,16 +55,16 @@ defmodule IriWeb.CollectionLive.Components do
             </span>
             <span
               role="columnheader"
-              aria-sort={aria_sort(@sort == "release_year", @sort_direction)}
+              aria-sort={aria_sort(@sort == "release_date", @sort_direction)}
             >
               <button
                 id={sort_id(@variant, :year)}
                 type="button"
                 phx-click="sort_collection"
-                phx-value-sort="release_year"
-                class={sort_header(@sort == "release_year")}
+                phx-value-sort="release_date"
+                class={sort_header(@sort == "release_date")}
               >
-                Year <.sort_icon active={@sort == "release_year"} direction={@sort_direction} />
+                Year <.sort_icon active={@sort == "release_date"} direction={@sort_direction} />
               </button>
             </span>
             <span
@@ -208,14 +208,14 @@ defmodule IriWeb.CollectionLive.Components do
         :if={@linked}
         navigate={~p"/games/#{@entry.slug}"}
         class={[
-          "truncate text-sm font-semibold text-slate-100 hover:text-teal-100",
+          "block break-words text-sm font-semibold text-slate-100 hover:text-teal-100",
           "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300",
           @stretched && "static after:absolute after:inset-0"
         ]}
       >
         {@entry.title}
       </.link>
-      <p :if={!@linked} class="truncate text-sm font-semibold text-slate-100">
+      <p :if={!@linked} class="break-words text-sm font-semibold text-slate-100">
         {@entry.title}
       </p>
       <p :if={@entry.comment} class="mt-1 text-xs leading-relaxed text-slate-400">

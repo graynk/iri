@@ -98,6 +98,63 @@ defmodule Iri.Integrations.Steam.CompatibilityTest do
     assert_received {:protondb_fetched, "620", ~s("fixture-protondb-etag")}
   end
 
+  test "does not refresh manual or AI rejected sources even when forced" do
+    account =
+      %ProviderAccount{}
+      |> ProviderAccount.changeset(%{provider: :steam, external_user_id: "rejected-owner"})
+      |> Repo.insert!()
+
+    for {id, method, kind} <- [
+          {10, "rejected", "game"},
+          {20, "ai_rejected", "rejected"},
+          {30, "ai_rejected", "game"},
+          {40, "ai_rejected", nil},
+          {50, nil, "rejected"}
+        ] do
+      assert {:ok, _counts} =
+               Reconciler.reconcile(account, [%{"appid" => id, "name" => "Rejected"}])
+
+      Repo.get_by!(GameSource, provider: :steam, external_id: to_string(id))
+      |> Ecto.Changeset.change(match_method: method, catalog_kind: kind)
+      |> Repo.update!()
+    end
+
+    # All records must be active so removed_at cannot mask a missing rejection check.
+    Repo.update_all(Iri.Library.LibraryItem, set: [removed_at: nil])
+
+    assert {:ok, %{discovered_count: 0, updated_count: 0}} =
+             Compatibility.sync(
+               client: StoreClientStub,
+               client_options: [test_pid: self()],
+               protondb_client_options: [test_pid: self()],
+               throttle_ms: 0,
+               force: true
+             )
+
+    refute_received {:compatibility_fetched, _}
+    refute_received {:deck_compatibility_fetched, _}
+    refute_received {:protondb_fetched, _, _}
+
+    # Compatibility still classifies non-game entries; it must not inherit the
+    # library's stricter game/unknown eligibility predicate.
+    Repo.get_by!(GameSource, provider: :steam, external_id: "50")
+    |> Ecto.Changeset.change(catalog_kind: "tool")
+    |> Repo.update!()
+
+    assert {:ok, %{discovered_count: 1}} =
+             Compatibility.sync(
+               client: StoreClientStub,
+               client_options: [test_pid: self()],
+               protondb_client_options: [test_pid: self()],
+               throttle_ms: 0,
+               force: true
+             )
+
+    assert_received {:compatibility_fetched, "50"}
+    assert_received {:deck_compatibility_fetched, "50"}
+    refute_received {:protondb_fetched, _, _}
+  end
+
   test "finishes Store and Deck checks before starting lower-priority ProtonDB checks" do
     account =
       %ProviderAccount{}

@@ -134,7 +134,6 @@ defmodule Iri.Integrations.Steam.ManualLibrary do
             provider_account_id: account.id,
             game_source_id: source.id,
             relationship: :owned,
-            hidden: false,
             manually_added: true,
             removed_at: nil
           })
@@ -170,7 +169,7 @@ defmodule Iri.Integrations.Steam.ManualLibrary do
         on:
           share.provider_account_id == account.id and share.user_id == ^user_id and share.linked,
         where:
-          account.provider == :steam and account.enabled and
+          account.provider == :steam and
             (account.owner_user_id == ^user_id or not is_nil(share.user_id)),
         distinct: true,
         order_by: [asc: account.id]

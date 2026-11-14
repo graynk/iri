@@ -47,7 +47,7 @@ defmodule Iri.Sync.Schedule do
   @doc "Executes one known scheduled task while renewing its scheduler lease."
   def execute("nightly_library_maintenance", _compatibility?, heartbeat)
       when is_function(heartbeat, 0) do
-    with :ok <- refresh_enabled_libraries([:steam, :gog, :xbox], heartbeat),
+    with :ok <- refresh_libraries([:steam, :gog, :xbox], heartbeat),
          :ok <- run_scheduled_igdb(false, heartbeat),
          :ok <- run_scheduled_compatibility(false, heartbeat),
          :ok <- verify_database_integrity(heartbeat) do
@@ -57,7 +57,7 @@ defmodule Iri.Sync.Schedule do
 
   def execute("weekly_metadata_refresh", _compatibility?, heartbeat)
       when is_function(heartbeat, 0) do
-    with :ok <- refresh_enabled_libraries([:gog], heartbeat),
+    with :ok <- refresh_libraries([:gog], heartbeat),
          :ok <- run_scheduled_igdb(true, heartbeat),
          :ok <- run_scheduled_compatibility(true, heartbeat) do
       :ok
@@ -127,11 +127,11 @@ defmodule Iri.Sync.Schedule do
   # Scheduled work deliberately reuses the same entry points as the admin UI.
   # This keeps provider configuration, run history, and failure reporting in one
   # path while this module only coordinates durable schedules.
-  defp refresh_enabled_libraries(providers, heartbeat) do
+  defp refresh_libraries(providers, heartbeat) do
     accounts =
       Repo.all(
         from account in ProviderAccount,
-          where: account.enabled == true and account.provider in ^providers,
+          where: account.provider in ^providers,
           order_by: [asc: account.id]
       )
 

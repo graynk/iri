@@ -228,20 +228,50 @@ defmodule IriWeb.GameLive.Detail do
                 </fieldset>
               </.form>
 
-              <div
-                :if={playtime_block?(@game, @current_scope.user)}
-                id="game-playtime"
-                class="flex flex-col gap-2 border-t border-slate-800 pt-3"
-              >
-                <div
-                  :if={personal_playtime_label(@game, @current_scope.user)}
-                  id="my-playtime"
+              <div id="game-playtime" class="flex flex-col gap-2 border-t border-slate-800 pt-3">
+                <.form
+                  for={@playtime_form}
+                  id="personal-playtime"
+                  phx-change="save_playtime"
+                  phx-submit="save_playtime"
                   class="flex items-baseline justify-between gap-3"
                 >
-                  <span class="text-xs text-slate-400">Playtime</span>
-                  <span class="text-sm font-medium text-slate-100">
-                    {personal_playtime_label(@game, @current_scope.user)}
+                  <span class="text-xs text-slate-400">
+                    {if store_hours_minutes(@game, @current_scope.user) > 0,
+                      do: "Extra hours",
+                      else: "Playtime"}
                   </span>
+                  <div class="flex items-baseline gap-2">
+                    <span id="playtime-feedback" aria-live="polite" class="text-xs text-teal-300">
+                      {@playtime_message}
+                    </span>
+                    <.input
+                      field={@playtime_form[:hours]}
+                      id="personal-playtime-input"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="100000"
+                      inputmode="decimal"
+                      placeholder="0"
+                      aria-label={
+                        if store_hours_minutes(@game, @current_scope.user) > 0 do
+                          "Extra hours added on top of your library playtime"
+                        else
+                          "Hours played"
+                        end
+                      }
+                      class="w-20 rounded-lg border border-slate-700 bg-slate-950/60 px-2 py-1 text-right text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-teal-300 focus:ring-2 focus:ring-teal-300/20"
+                    />
+                    <span class="text-xs text-slate-400">hours</span>
+                  </div>
+                </.form>
+                <div
+                  :if={playtime_total_label(@game, @current_scope.user)}
+                  id="playtime-total"
+                  class="text-xs text-slate-500"
+                >
+                  {playtime_total_label(@game, @current_scope.user)}
                 </div>
                 <div
                   :if={time_to_beat_label(@game)}
@@ -490,7 +520,7 @@ defmodule IriWeb.GameLive.Detail do
                     {company_role_label(relation)}
                     <.link
                       id={"game-company-#{relation.id}"}
-                      navigate={~p"/companies/#{relation.company.id}"}
+                      navigate={~p"/companies/#{"#{relation.company.slug}-#{relation.company.id}"}"}
                       class="ml-1 text-slate-300 transition hover:text-teal-200"
                     >
                       {relation.company.name}
@@ -704,43 +734,52 @@ defmodule IriWeb.GameLive.Detail do
           <.focus_wrap
             id="screenshot-viewer-focus"
             phx-mounted={JS.focus_first()}
-            class="grid size-full place-items-center p-4 sm:p-8"
+            class="relative flex size-full items-center justify-center p-4 pt-20 sm:p-8 sm:pt-20"
           >
             <button
               id="close-screenshot-viewer"
               type="button"
               phx-click="close_screenshot"
               data-dialog-close
-              class="absolute right-4 top-4 grid size-11 place-items-center rounded-lg bg-slate-900 text-slate-200 ring-1 ring-slate-700 transition hover:bg-slate-800 hover:text-heading"
+              class="absolute right-4 top-4 z-20 grid size-11 place-items-center rounded-lg bg-slate-900 text-slate-200 ring-1 ring-slate-700 transition hover:bg-slate-800 hover:text-heading focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300 motion-reduce:transition-none"
               aria-label="Close screenshot viewer"
             >
               <.icon name="hero-x-mark" class="size-6" />
             </button>
-            <button
-              :if={length(@screenshots) > 1}
-              id="previous-screenshot"
-              type="button"
-              phx-click="previous_screenshot"
-              class="absolute left-3 grid size-11 place-items-center rounded-lg bg-slate-900/90 text-heading ring-1 ring-slate-700 transition hover:bg-slate-800 sm:left-6"
-              aria-label="Previous screenshot"
-            >
-              <.icon name="hero-chevron-left" class="size-6" />
-            </button>
-            <img
-              src={screenshot_url(Enum.at(@screenshots, @screenshot_index))}
-              alt={"Screenshot #{@screenshot_index + 1} from #{@game.title}"}
-              class="max-h-[88vh] max-w-full rounded-xl object-contain shadow-2xl shadow-black"
-            />
-            <button
-              :if={length(@screenshots) > 1}
-              id="next-screenshot"
-              type="button"
-              phx-click="next_screenshot"
-              class="absolute right-3 grid size-11 place-items-center rounded-lg bg-slate-900/90 text-heading ring-1 ring-slate-700 transition hover:bg-slate-800 sm:right-6"
-              aria-label="Next screenshot"
-            >
-              <.icon name="hero-chevron-right" class="size-6" />
-            </button>
+            <div id="screenshot-viewer-content" class="flex max-w-full flex-col items-center gap-3">
+              <img
+                id="screenshot-viewer-image"
+                src={screenshot_url(Enum.at(@screenshots, @screenshot_index))}
+                alt={"Screenshot #{@screenshot_index + 1} from #{@game.title}"}
+                class="max-h-[calc(100dvh-11rem)] max-w-full rounded-xl object-contain shadow-2xl shadow-black"
+              />
+              <div
+                :if={length(@screenshots) > 1}
+                id="screenshot-viewer-controls"
+                role="group"
+                aria-label="Screenshot navigation"
+                class="flex shrink-0 items-center justify-center gap-4"
+              >
+                <button
+                  id="previous-screenshot"
+                  type="button"
+                  phx-click="previous_screenshot"
+                  class="grid size-11 place-items-center rounded-lg bg-slate-900/90 text-heading ring-1 ring-slate-700 transition hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300 motion-reduce:transition-none"
+                  aria-label="Previous screenshot"
+                >
+                  <.icon name="hero-chevron-left" class="size-6" />
+                </button>
+                <button
+                  id="next-screenshot"
+                  type="button"
+                  phx-click="next_screenshot"
+                  class="grid size-11 place-items-center rounded-lg bg-slate-900/90 text-heading ring-1 ring-slate-700 transition hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300 motion-reduce:transition-none"
+                  aria-label="Next screenshot"
+                >
+                  <.icon name="hero-chevron-right" class="size-6" />
+                </button>
+              </div>
+            </div>
           </.focus_wrap>
         </div>
 

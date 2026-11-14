@@ -84,7 +84,7 @@ defmodule Iri.Library.Companies do
     item_query =
       from item in LibraryItem,
         where:
-          not item.hidden and is_nil(item.removed_at) and
+          is_nil(item.removed_at) and
             item.provider_account_id in subquery(accessible_account_ids),
         preload: [:provider_account]
 
@@ -92,7 +92,7 @@ defmodule Iri.Library.Companies do
       from source in GameSource,
         join: item in assoc(source, :library_items),
         where:
-          not item.hidden and is_nil(item.removed_at) and
+          is_nil(item.removed_at) and
             item.provider_account_id in subquery(accessible_account_ids),
         distinct: true,
         preload: [library_items: ^item_query]

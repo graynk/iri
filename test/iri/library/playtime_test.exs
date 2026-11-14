@@ -16,11 +16,11 @@
 # along with IRI. If not, see <https://www.gnu.org/licenses/>.
 
 defmodule Iri.Library.PlaytimeTest do
-  use ExUnit.Case, async: true
+  use Iri.DataCase
 
-  alias Iri.Accounts.User
   alias Iri.Integrations.ProviderAccount
-  alias Iri.Library.Playtime
+  alias Iri.Library.{LibraryItem, Playtime}
+  alias Iri.Accounts.User
 
   test "a user's own Steam account counts even without a chosen main account" do
     user = %User{id: 1, main_steam_account_id: nil, steam_id: nil}
@@ -59,5 +59,44 @@ defmodule Iri.Library.PlaytimeTest do
 
     assert Playtime.personal_account?(gog, user)
     refute Playtime.personal_account?(%ProviderAccount{provider: :gog, owner_user_id: 2}, user)
+  end
+
+  test "only stores that report their own hours are self-reported" do
+    for provider <- [:steam, :gog, :xbox], do: assert(Playtime.self_reported?(provider))
+    for provider <- [:custom, :epic, :psn], do: refute(Playtime.self_reported?(provider))
+  end
+
+  test "total_minutes sums the hours across all stores" do
+    items = [
+      item(2400),
+      item(1500),
+      item(60),
+      item(nil)
+    ]
+
+    assert Playtime.total_minutes(items, 0) == 3960
+  end
+
+  test "total_minutes adds the manual offset on top of the store hours" do
+    items = [item(2400), item(1500)]
+
+    assert Playtime.total_minutes(items, 750) == 4650
+  end
+
+  test "total_minutes returns the offset alone when the game has no items" do
+    assert Playtime.total_minutes([], 900) == 900
+    assert Playtime.total_minutes([], 0) == 0
+  end
+
+  test "total_minutes never returns a value below zero" do
+    # A negative offset can only exist via the open negative decision, a
+    # future write bug, or a corrupted row — the clamp is the catch.
+    assert Playtime.total_minutes([item(120)], -600) == 0
+    assert Playtime.total_minutes([], -600) == 0
+    assert Playtime.total_minutes([item(300), item(200)], -350) == 150
+  end
+
+  defp item(minutes) do
+    %LibraryItem{playtime_minutes: minutes}
   end
 end

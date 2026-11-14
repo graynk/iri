@@ -37,19 +37,27 @@ defmodule IriWeb.CompanyLive do
   alias Iri.Media.Policy
 
   @impl true
-  def mount(%{"id" => company_id}, _session, socket) do
+  def mount(%{"slug_id" => slug_id}, _session, socket) do
+    company_id = slug_id |> String.split("-") |> List.last()
+
     case Companies.get_in_library(socket.assigns.current_scope, company_id) do
       {:ok, %{company: company, games: games, total_count: total_count}} ->
-        entries = Enum.map(games, &%{id: &1.id, game: &1})
+        canonical_param = "#{company.slug}-#{company.id}"
 
-        {:ok,
-         socket
-         |> assign(:page_title, company.name)
-         |> assign(:company, company)
-         |> assign(:company_roles, company_roles(games))
-         |> assign(:total_count, total_count)
-         |> stream_configure(:company_games, dom_id: &"company-game-#{&1.id}")
-         |> stream(:company_games, entries)}
+        if slug_id == canonical_param do
+          entries = Enum.map(games, &%{id: &1.id, game: &1})
+
+          {:ok,
+           socket
+           |> assign(:page_title, company.name)
+           |> assign(:company, company)
+           |> assign(:company_roles, company_roles(games))
+           |> assign(:total_count, total_count)
+           |> stream_configure(:company_games, dom_id: &"company-game-#{&1.id}")
+           |> stream(:company_games, entries)}
+        else
+          {:ok, redirect(socket, to: ~p"/companies/#{canonical_param}", status: 301)}
+        end
 
       {:error, _reason} ->
         {:ok,

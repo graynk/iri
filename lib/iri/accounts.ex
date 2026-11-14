@@ -367,7 +367,7 @@ defmodule Iri.Accounts do
         on:
           share.provider_account_id == account.id and share.user_id == ^user_id and share.linked,
         where:
-          account.id == ^account_id and account.provider == :steam and account.enabled and
+          account.id == ^account_id and account.provider == :steam and
             (account.owner_user_id == ^user_id or not is_nil(share.user_id)),
         limit: 1
     )
@@ -380,7 +380,7 @@ defmodule Iri.Accounts do
         on:
           share.provider_account_id == account.id and share.user_id == ^user_id and share.linked,
         where:
-          account.provider == :steam and account.enabled and
+          account.provider == :steam and
             (account.owner_user_id == ^user_id or not is_nil(share.user_id)),
         distinct: true,
         order_by: [asc: account.id],

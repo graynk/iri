@@ -27,7 +27,7 @@ defmodule Iri.Library.StatusManager do
   alias Iri.Repo
 
   @page_size 100
-  @sorts ~w(title release_year playtime)
+  @sorts ~w(title release_date playtime)
   @statuses ~w(all backlog playing completed dropped not_played)
 
   @doc "Returns a paginated, scoped game list for bulk state and rating management."
@@ -116,7 +116,7 @@ defmodule Iri.Library.StatusManager do
         join: account in assoc(item, :provider_account),
         as: :account,
         where: ^personal_account_filter,
-        where: account.enabled and not item.hidden and is_nil(item.removed_at)
+        where: is_nil(item.removed_at)
 
     source_query =
       from source in GameSource,
@@ -177,10 +177,10 @@ defmodule Iri.Library.StatusManager do
         as: :account,
         where: ^personal_account_filter,
         where:
-          account.enabled and not item.hidden and is_nil(item.removed_at) and
+          is_nil(item.removed_at) and
             not is_nil(source.game_id),
         group_by: source.game_id,
-        select: %{game_id: source.game_id, minutes: max(item.playtime_minutes)}
+        select: %{game_id: source.game_id, minutes: sum(item.playtime_minutes)}
 
     from [game: game] in query,
       left_join: playtime in subquery(personal_playtime),
@@ -188,39 +188,53 @@ defmodule Iri.Library.StatusManager do
       on: playtime.game_id == game.id
   end
 
-  defp apply_sort(query, "release_year", "desc") do
+  defp apply_sort(query, "release_date", "desc") do
     from [game: game] in query,
       order_by: [
-        asc: is_nil(game.release_year),
-        desc: game.release_year,
+        asc: is_nil(game.release_date),
+        desc: game.release_date,
         asc: game.normalized_title,
         asc: game.id
       ]
   end
 
-  defp apply_sort(query, "release_year", _asc) do
+  defp apply_sort(query, "release_date", _asc) do
     from [game: game] in query,
       order_by: [
-        asc: is_nil(game.release_year),
-        asc: game.release_year,
+        asc: is_nil(game.release_date),
+        asc: game.release_date,
         asc: game.normalized_title,
         asc: game.id
       ]
   end
 
+  # The subquery selects the raw sum of the viewer's personal store hours;
+  # the clamped total (sum + manual offset, floored at 0) is computed in the
+  # ORDER BY fragment below, which can also reference the viewer's state row
+  # from the base query's user_state join.
   defp apply_sort(query, "playtime", "desc") do
-    from [game: game, playtime: playtime] in query,
+    from [game: game, playtime: playtime, user_state: user_state] in query,
       order_by: [
-        desc: fragment("COALESCE(?, 0)", playtime.minutes),
+        desc:
+          fragment(
+            "COALESCE(MAX(0, COALESCE(?, 0) + COALESCE(?, 0)), 0)",
+            playtime.minutes,
+            user_state.playtime_offset_minutes
+          ),
         asc: game.normalized_title,
         asc: game.id
       ]
   end
 
   defp apply_sort(query, "playtime", _asc) do
-    from [game: game, playtime: playtime] in query,
+    from [game: game, playtime: playtime, user_state: user_state] in query,
       order_by: [
-        asc: fragment("COALESCE(?, 0)", playtime.minutes),
+        asc:
+          fragment(
+            "COALESCE(MAX(0, COALESCE(?, 0) + COALESCE(?, 0)), 0)",
+            playtime.minutes,
+            user_state.playtime_offset_minutes
+          ),
         asc: game.normalized_title,
         asc: game.id
       ]
@@ -248,8 +262,9 @@ defmodule Iri.Library.StatusManager do
     }
   end
 
-  defp normalize_sort("release_desc"), do: "release_year"
-  defp normalize_sort("release_asc"), do: "release_year"
+  defp normalize_sort("release_desc"), do: "release_date"
+  defp normalize_sort("release_asc"), do: "release_date"
+  defp normalize_sort("release_year"), do: "release_date"
   defp normalize_sort(value), do: allowed(value, @sorts, "title")
 
   defp normalize_direction(value, _sort) when value in ["asc", "desc"], do: value

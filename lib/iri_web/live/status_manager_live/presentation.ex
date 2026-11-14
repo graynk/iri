@@ -21,6 +21,8 @@ defmodule IriWeb.StatusManagerLive.Presentation do
   import IriWeb.CoreComponents,
     only: [format_rating_value: 1, half_rating?: 1, rating_face_index: 1, rating_swatch: 1]
 
+  alias Iri.Library.Playtime
+
   def cover_asset(game), do: List.first(game.media_assets)
 
   def personal_state(%{user_states: [%{state: state} | _rest]})
@@ -76,17 +78,22 @@ defmodule IriWeb.StatusManagerLive.Presentation do
   def release_year(%{release_year: year}) when is_integer(year), do: Integer.to_string(year)
   def release_year(_game), do: "Unknown year"
 
-  def playtime_label(%{sources: sources}) when is_list(sources) do
+  # The viewer's total playtime for a game: the sum of all store hours across
+  # all of their stores plus their manual offset, clamped at zero. The items
+  # are preloaded already filtered to the viewer's personal accounts.
+  def playtime_label(%{sources: sources} = game) when is_list(sources) do
     minutes =
       sources
       |> Enum.flat_map(& &1.library_items)
-      |> Enum.map(&(&1.playtime_minutes || 0))
-      |> Enum.max(fn -> 0 end)
+      |> Playtime.total_minutes(offset_minutes(game))
 
     if minutes > 0, do: "#{Float.round(minutes / 60, 1)}h", else: "0h"
   end
 
   def playtime_label(_game), do: "0h"
+
+  defp offset_minutes(%{user_states: [state | _]}), do: state.playtime_offset_minutes || 0
+  defp offset_minutes(_game), do: 0
 
   def status_label("backlog"), do: "Want to play"
   def status_label("playing"), do: "Playing"

@@ -18,6 +18,8 @@
 defmodule IriWeb.LibraryLive.Filters do
   @moduledoc "URL and form-state helpers for the library browser's persisted filter controls."
 
+  alias Iri.Library
+
   @defaults %{
     "q" => "",
     "tag_ids" => [],
@@ -30,22 +32,28 @@ defmodule IriWeb.LibraryLive.Filters do
     "controllers" => [],
     "deck" => [],
     "platforms" => [],
-    "sort" => "title",
-    "direction" => "asc"
+    "sort" => "title"
   }
 
-  def defaults, do: @defaults
+  # Page slots rendered by the paginator, and how many leading/trailing pages are
+  # listed before the current page gets its own window.
+  @pagination_slots 7
+  @edge_slots 4
+
+  def defaults, do: Map.put(@defaults, "direction", Library.default_direction(@defaults["sort"]))
 
   def query(params, page \\ 1) do
+    default_direction = Library.default_direction(params["sort"])
+
     query =
-      @defaults
+      defaults()
       |> Map.keys()
       |> Enum.reduce(%{}, fn key, query ->
         case {key, Map.get(params, key)} do
           {"sort", "title"} ->
             query
 
-          {"direction", "asc"} ->
+          {"direction", ^default_direction} ->
             query
 
           {_key, value} when is_binary(value) ->
@@ -64,33 +72,38 @@ defmodule IriWeb.LibraryLive.Filters do
     if page > 1, do: Map.put(query, "page", page), else: query
   end
 
-  def pagination_tokens(_page, page_count) when page_count <= 7,
+  @doc """
+  Returns the page tokens to render, always `@pagination_slots` of them once the
+  list is longer than that, so the control keeps the same width on every page.
+  """
+  def pagination_tokens(_page, page_count) when page_count <= @pagination_slots,
     do: Enum.to_list(1..page_count)
 
-  def pagination_tokens(page, page_count) do
-    [1, page - 1, page, page + 1, page_count]
-    |> Enum.filter(&(&1 >= 1 and &1 <= page_count))
-    |> Enum.uniq()
-    |> Enum.sort()
-    |> Enum.reduce([], fn token, tokens ->
-      case List.last(tokens) do
-        previous when is_integer(previous) and token - previous > 1 ->
-          tokens ++ [:ellipsis, token]
+  def pagination_tokens(page, page_count) when page <= @edge_slots,
+    do: Enum.to_list(1..(@edge_slots + 1)) ++ [:ellipsis, page_count]
 
-        _previous ->
-          tokens ++ [token]
-      end
-    end)
-  end
+  def pagination_tokens(page, page_count) when page > page_count - @edge_slots,
+    do: [1, :ellipsis] ++ Enum.to_list((page_count - @edge_slots)..page_count)
+
+  def pagination_tokens(page, page_count),
+    do: [1, :ellipsis, page - 1, page, page + 1, :ellipsis, page_count]
 
   def merge_event(current, incoming, ["filters", target]) do
-    current
-    |> Map.merge(incoming)
-    |> then(fn merged ->
-      if Map.has_key?(incoming, target),
-        do: merged,
-        else: Map.put(merged, target, empty_value(target))
-    end)
+    merged =
+      current
+      |> Map.merge(incoming)
+      |> then(fn merged ->
+        if Map.has_key?(incoming, target),
+          do: merged,
+          else: Map.put(merged, target, empty_value(target))
+      end)
+
+    if target == "sort" and
+         Library.default_direction(current["sort"]) != Library.default_direction(merged["sort"]) do
+      Map.put(merged, "direction", Library.default_direction(merged["sort"]))
+    else
+      merged
+    end
   end
 
   def merge_event(_current, incoming, _target), do: incoming

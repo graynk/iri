@@ -32,7 +32,6 @@ defmodule Iri.Integrations.GOG.ReconcilerTest do
 
     source = Repo.get_by!(GameSource, provider: :gog, external_id: "30")
     item = Repo.get_by!(LibraryItem, game_source_id: source.id)
-    refute item.hidden
     assert item.playtime_minutes == 0
     assert source.source_url =~ "gog.com/game/"
 
