@@ -18,9 +18,10 @@
  */
 
 /*
- * Iri PlayStation collector v4.
- * Paste this entire file into the Console on library.playstation.com, then
- * visit both the Played and Purchased sections and scroll each to the end.
+ * Iri PlayStation collector v5.
+ * Paste this entire file into the Console on library.playstation.com. It
+ * walks every page of the Played and Purchased sections by itself; wait for
+ * "All pages fetched." in the panel, then press Download for IRI.
  */
 (() => {
   if (window.IriPSN?._restore) window.IriPSN._restore()
@@ -29,12 +30,33 @@
   const originalFetch = window.fetch.bind(window)
   const OriginalXHR = window.XMLHttpRequest
   const text = value => value == null ? null : String(value).trim() || null
-  const saved = JSON.parse(sessionStorage.getItem(storageKey) || "{}")
-  const savedCaptures = saved.captures || saved
-  const captures = {
-    purchased: Array.isArray(savedCaptures.purchased) ? savedCaptures.purchased : [],
-    played: Array.isArray(savedCaptures.played) ? savedCaptures.played : []
+  let storageError = null
+  const loadSaved = () => {
+    try { return JSON.parse(sessionStorage.getItem(storageKey) || "{}") || {} } catch (_) { return {} }
   }
+  const saved = loadSaved()
+  const savedCaptures = saved.captures || saved
+  const captureKey = item => `${item.concept_id || item.title_id || item.product_id}|${String(item.name || "").toLocaleLowerCase()}`
+  const seenKeys = {purchased: new Set(), played: new Set()}
+  const captures = {purchased: [], played: []}
+
+  // Every DOM scan used to re-push every visible tile, so the capture arrays
+  // (and the sessionStorage copy) grew without bound while scrolling. Keep
+  // one entry per game instead.
+  const addCaptures = (kind, items) => {
+    let added = 0
+    items.forEach(item => {
+      const key = captureKey(item)
+      if (seenKeys[kind].has(key)) return
+      seenKeys[kind].add(key)
+      captures[kind].push(item)
+      added += 1
+    })
+    return added
+  }
+  ;["purchased", "played"].forEach(kind => {
+    if (Array.isArray(savedCaptures[kind])) addCaptures(kind, savedCaptures[kind])
+  })
   const pages = {
     purchased: Number(saved.pages?.purchased || 0),
     played: Number(saved.pages?.played || 0)
@@ -117,10 +139,12 @@
 
   const findItems = body => {
     const apolloRoot = body?.props?.apolloState?.ROOT_QUERY
+    const apolloState = body?.props?.apolloState || {}
     const apolloGames = apolloRoot && Object.entries(apolloRoot)
       .find(([key, value]) =>
         /(?:gameLibrary|purchased)TitlesRetrieve/i.test(key) && Array.isArray(value?.games)
       )?.[1]?.games
+      ?.map(game => game?.__ref ? apolloState[game.__ref] || game : game)
 
     if (Array.isArray(apolloGames) && apolloGames.some(looksLikeGame)) return apolloGames
 
@@ -179,7 +203,14 @@
   }
 
   const persist = () => {
-    sessionStorage.setItem(storageKey, JSON.stringify({captures, pages, account}))
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify({captures, pages, account}))
+      storageError = null
+    } catch (error) {
+      // Quota or privacy settings: keep collecting in memory, just warn.
+      storageError = error
+      console.warn("IriPSN could not save to sessionStorage, keeping data in memory only", error)
+    }
     updatePanel()
   }
 
@@ -191,11 +222,12 @@
       .filter(item => isGameName(item.name) && (item.concept_id || item.title_id || item.product_id))
     if (!kind || items.length === 0) return 0
 
-    captures[kind].push(...items)
+    const added = addCaptures(kind, items)
+    if (added === 0) return 0
     pages[kind] += 1
     persist()
-    console.info(`IriPSN captured ${items.length} ${kind} games`)
-    return items.length
+    console.info(`IriPSN captured ${added} new ${kind} games`)
+    return added
   }
 
   const stableTitleId = name => {
@@ -245,7 +277,6 @@
 
     captureAccountFromDOM()
 
-    const before = new Set(captures[kind].map(item => item.concept_id || item.title_id || item.product_id)).size
     const found = []
 
     document.querySelectorAll("a[href*='/concept/'], a[href*='/product/']")
@@ -270,21 +301,21 @@
         if (item) found.push(item)
       })
 
-    captures[kind].push(...found)
+    const added = addCaptures(kind, found)
     if (found.length > 0) pages[kind] = Math.max(pages[kind], 1)
-    persist()
-
-    const after = new Set(captures[kind].map(item => item.concept_id || item.title_id || item.product_id)).size
-    return Math.max(after - before, 0)
+    if (added > 0) persist()
+    return added
   }
 
   const scanEmbeddedJSON = (root = document, hint = "") => {
+    let added = 0
     root.querySelectorAll("script[type='application/json']").forEach(script => {
       // No URL hint: the embedded cache keeps the data of the page that was
       // first loaded, not the section currently shown, so only the payload's
       // own query names can classify it safely.
-      try { capture(hint, JSON.parse(script.textContent)) } catch (_) {}
+      try { added += capture(hint, JSON.parse(script.textContent)) } catch (_) {}
     })
+    return added
   }
 
   // Apollo can retain its original fetch function before a pasted script has
@@ -292,17 +323,101 @@
   // page in __NEXT_DATA__, so read both same-origin documents directly. This
   // makes the initial Played and Purchased captures independent of timing and
   // of the language or markup used for the visible cards.
-  const captureLibrarySnapshot = async path => {
+  const pageInfoFrom = body => {
+    const root = body?.props?.apolloState?.ROOT_QUERY || {}
+    const info = Object.entries(root)
+      .find(([key]) => /(?:gameLibrary|purchased)TitlesRetrieve/i.test(key))?.[1]?.pageInfo
+    return info?.__ref ? body.props.apolloState[info.__ref] || null : info || null
+  }
+
+  // Fetch one server-rendered library page and report what it held.
+  const snapshotPage = async path => {
     const response = await originalFetch(path, {
       credentials: "include",
       cache: "no-store",
       headers: {accept: "text/html"}
     })
-    if (!response.ok) return 0
+    const result = {path, status: response.status, raw: 0, added: 0, pageInfo: null}
+    if (!response.ok) return result
 
     const html = await response.text()
     const snapshot = new DOMParser().parseFromString(html, "text/html")
-    scanEmbeddedJSON(snapshot, path)
+    snapshot.querySelectorAll("script[type='application/json']").forEach(script => {
+      try {
+        const body = JSON.parse(script.textContent)
+        result.raw += findItems(body).length
+        result.added += capture(path, body)
+        result.pageInfo ||= pageInfoFrom(body)
+      } catch (_) {}
+    })
+    return result
+  }
+
+  const captureLibrarySnapshot = async path => (await snapshotPage(path)).added
+
+  // The library is paginated by path (/recently-purchased/3), and each page
+  // is server-rendered with its games in __NEXT_DATA__.
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+  let crawling = false
+  let crawlInfo = ""
+
+  // Walk /section/1, /section/2, … using the page's own pageInfo
+  // (offset, size, totalCount, isLast) to know when to stop. Pages that
+  // bring only already-known games are fine; failures are retried.
+  const crawlLog = []
+
+  const crawlSection = async section => {
+    let totalPages = null
+    for (let page = 1; page <= 300; page++) {
+      crawlInfo = `Fetching ${section} page ${page}${totalPages ? `/${totalPages}` : ""}…`
+      updatePanel()
+
+      let result = null
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        try { result = await snapshotPage(`/${section}/${page}`) } catch (error) {
+          result = {path: `/${section}/${page}`, status: `error: ${error.message}`, raw: 0, added: 0, pageInfo: null}
+        }
+        if (result.status === 200 && result.raw > 0) break
+        await sleep(1500 * attempt)
+      }
+
+      const info = result.pageInfo
+      if (info?.totalCount && info?.size) totalPages = Math.ceil(info.totalCount / info.size)
+      crawlLog.push({
+        page: result.path, status: result.status, games: result.raw, new: result.added,
+        offset: info?.offset, total: info?.totalCount, isLast: info?.isLast
+      })
+
+      if (result.status !== 200 || result.raw === 0) {
+        console.warn(`IriPSN stopped ${section} at page ${page}`, result)
+        break
+      }
+      if (info?.isLast === true) break
+      if (info && Number(info.offset) + Number(info.size) >= Number(info.totalCount)) break
+      if (totalPages && page >= totalPages) break
+      await sleep(500)
+    }
+  }
+
+  const fetchAllPages = async () => {
+    if (crawling) return
+    crawling = true
+    crawlLog.length = 0
+    try {
+      await captureLibrarySnapshot("/recently-played")
+      await captureLibrarySnapshot("/recently-purchased")
+      await crawlSection("recently-purchased")
+      await crawlSection("recently-played")
+      crawlInfo = "All pages fetched."
+    } catch (error) {
+      crawlInfo = `Page fetch failed: ${error.message}`
+      console.warn("IriPSN page fetch failed", error)
+    } finally {
+      crawling = false
+      persist()
+      console.table(crawlLog)
+      console.table({purchased: unique("purchased").length, played: unique("played").length})
+    }
   }
 
   const requestHint = (input, init = {}) => {
@@ -393,13 +508,20 @@
     const link = document.createElement("a")
     link.href = URL.createObjectURL(blob)
     link.download = "iri-psn-games.json"
+    link.style.display = "none"
+    // Firefox is more reliable with an attached anchor, and revoking the blob
+    // after 1 s can break the download while its save dialog is still open.
+    document.body.appendChild(link)
     link.click()
-    setTimeout(() => URL.revokeObjectURL(link.href), 1000)
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(link.href), 60000)
   }
 
   const reset = () => {
     captures.purchased.length = 0
     captures.played.length = 0
+    seenKeys.purchased.clear()
+    seenKeys.played.clear()
     pages.purchased = 0
     pages.played = 0
     persist()
@@ -439,7 +561,12 @@
     resetButton.style.cssText = buttonStyle + "background:#334155;color:#e2e8f0"
     resetButton.addEventListener("click", reset)
 
-    panel.append(counts, downloadButton, resetButton)
+    const fetchButton = document.createElement("button")
+    fetchButton.textContent = "Fetch all pages"
+    fetchButton.style.cssText = buttonStyle + "background:#334155;color:#e2e8f0;margin-right:8px"
+    fetchButton.addEventListener("click", fetchAllPages)
+
+    panel.append(counts, downloadButton, fetchButton, resetButton)
     document.body.appendChild(panel)
     updatePanel()
   }
@@ -450,7 +577,8 @@
     counts.textContent =
       `IRI PSN collector${account?.online_id ? ` - ${account.online_id}` : ""}\n` +
       `Purchased: ${unique("purchased").length}\nPlayed: ${unique("played").length}\n` +
-      "Open both lists and scroll to the end."
+      (crawlInfo || "Fetching all pages…") +
+      (storageError ? "\n⚠ Not saved across reloads (storage error)" : "")
   }
 
   let scanTimer = null
@@ -467,10 +595,7 @@
   buildPanel()
   scanDOM()
   scanEmbeddedJSON()
-  Promise.allSettled([
-    captureLibrarySnapshot("/recently-played"),
-    captureLibrarySnapshot("/recently-purchased")
-  ])
+  fetchAllPages()
   originalFetch("https://web.np.playstation.com/api/basicProfile/v1/profile/users/me", {
     credentials: "include",
     headers: {accept: "application/json"}
@@ -481,10 +606,23 @@
     })
     .catch(() => {})
 
+  // Manual fallback when neither the page data nor the avatar reveals the
+  // signed-in account (the profile API call is often refused with a 403).
+  const setAccount = onlineId => {
+    const name = text(onlineId)
+    if (!name) throw new Error("Usage: IriPSN.setAccount(\"YourPSNOnlineId\")")
+    account = {id: name.toLocaleLowerCase(), online_id: name}
+    persist()
+    return account
+  }
+
   window.IriPSN = {
     status,
     download,
     reset,
+    fetchAllPages,
+    setAccount,
+    account: () => account,
     _restore: () => {
       observer.disconnect()
       clearTimeout(scanTimer)
@@ -495,6 +633,6 @@
     }
   }
 
-  console.info("IriPSN is collecting. Open Recently Played and Recently Purchased, scroll both lists, then run IriPSN.status().")
+  console.info("IriPSN is fetching every Played and Purchased page. Wait for \"All pages fetched.\" in the panel, then press Download for IRI.")
   status()
 })()
