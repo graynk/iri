@@ -133,21 +133,23 @@ defmodule IriWeb.Settings.PSNImportLive do
             <li class="flex gap-3">
               <span class="grid size-7 shrink-0 place-items-center rounded-full bg-slate-800 text-xs font-semibold text-teal-200">3</span>
               <span>
-                A small counter panel appears in the corner. Open
+                A small counter panel appears in the corner. The collector then reads every page of
                 <a
                   href="https://library.playstation.com/recently-played"
                   target="_blank"
                   rel="noreferrer"
                   class="font-semibold text-teal-300 underline underline-offset-4"
                 >recently played</a>
-                and scroll until no more games load, then open
+                and
                 <a
                   href="https://library.playstation.com/recently-purchased"
                   target="_blank"
                   rel="noreferrer"
                   class="font-semibold text-teal-300 underline underline-offset-4"
                 >recently purchased</a>
-                and do the same, in either order. The visible labels may be localized; the
+                by itself; wait until the panel shows
+                <strong class="text-slate-100">All pages fetched.</strong>
+                Large libraries take a minute or two. The visible labels may be localized; the
                 collector identifies these unchanged URLs and PlayStation's response fields.
                 Played games are included so PlayStation Plus games are not missed.
               </span>
@@ -157,7 +159,9 @@ defmodule IriWeb.Settings.PSNImportLive do
               <span>
                 When both counters and the PSN name in the panel look right, press
                 <strong class="text-slate-100">Download for IRI</strong>
-                in the panel and upload that file below.
+                in the panel and upload that file below. If the PSN name is missing, run
+                <code class="text-slate-100">IriPSN.setAccount("YourOnlineId")</code>
+                in the console first.
               </span>
             </li>
           </ol>
